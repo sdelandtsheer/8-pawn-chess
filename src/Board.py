@@ -1,4 +1,6 @@
 # class Board for 8Pawns game
+import numpy as np
+
 class Board:
     def __init__(self):
         self.board = [
@@ -12,6 +14,7 @@ class Board:
             [0] * 8,
         ]
         self.current_player = 1 # White starts
+
     def __str__(self):
         board_str = ""
         for row in self.board:
@@ -61,16 +64,21 @@ class Board:
         if is_ep:
             self.board[from_row][to_col] = 0
 
-    def is_winning(self):
-        last_row = 6 if self.current_player == 1 else 1 # no need for very last row, if a pawn reaches 2nd or 7th row promotion is inevitable
+    def is_winning(self, player):
+        last_row = 6 if player == 1 else 1 # no need for very last row, if a pawn reaches 2nd or 7th row promotion is inevitable
         for col in range(8):
-            if self.board[last_row][col] == self.current_player:
+            if self.board[last_row][col] == player:
                 return True
-        if not self.get_moves_list(-self.current_player):
+        if not self.get_moves_list(-player):
             return True
         return False
 
     def _evaluate_single(self, player):
+        if self.is_winning(player):
+            return np.inf
+        elif self.is_winning(-player):
+            return -np.inf
+
         theta1 = 1
         theta2 = 1
         start_row = 6 if player == 1 else 1
