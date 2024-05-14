@@ -35,12 +35,13 @@ class Board:
 
         for row in range(8):
             for col in range(8):
-                print(f'{row, col}')
+                # print(f'{row, col}')
                 if self.board[row][col] == player: # if player's pawn
                     if self.board[row - direction][col] == 0: # if next square is free
                         moves.append((row, col, row - direction, col, False)) # one square forward
-                    if self.board[row - direction][col] == 0 and self.board[row - (direction * 2)][col] == 0 and row == start_row:
-                        moves.append((row, col, row - direction * 2, col, False))  # two squares forward
+                    if row == start_row:
+                        if self.board[row - direction][col] == 0 and self.board[row - (direction * 2)][col] == 0:
+                            moves.append((row, col, row - direction * 2, col, False))  # two squares forward
                     if col > 0:
                         if self.board[row - direction][col - 1] == -player or self.board[row - direction][col - 1] == -(player * 2):
                             moves.append((row, col, row - direction, col - 1, False))  # capture left
@@ -65,7 +66,7 @@ class Board:
             self.board[from_row][to_col] = 0
 
     def is_winning(self, player):
-        last_row = 6 if player == 1 else 1 # no need for very last row, if a pawn reaches 2nd or 7th row promotion is inevitable
+        last_row = 1 if player == 1 else 6 # no need for very last row, if a pawn reaches 2nd or 7th row promotion is inevitable
         for col in range(8):
             if self.board[last_row][col] == player:
                 return True
