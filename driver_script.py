@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from app.Board import Board
+from app.board import Board
 
 terminal_moves = []
 
