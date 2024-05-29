@@ -54,6 +54,9 @@ class Board:
                             moves.append((row, col, row - direction, col + 1, True))  # capture en-passant right
         return moves
 
+    def is_move_allowed(self, move):
+        return True
+
     def normalize_pawns(self, player): # reset en-passant at the beginning of each move
         self.board = [[player if x == (player * 2) else x for x in row] for row in self.board]
 
