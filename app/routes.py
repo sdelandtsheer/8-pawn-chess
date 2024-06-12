@@ -29,13 +29,20 @@ def get_board():
 
 @app.route("/make_move", methods=["POST"])
 def make_move():
-    move = request.json["move"]
-    if game.is_move_allowed((move.from_row, move.from_col, move.to_row, move.to_col)):
+    data = request.json["move"]
+    move = (data["from_row"], data["from_col"], data["to_row"], data["to_col"])
+    if game.is_move_allowed(move):
         game.push_move(move)
         if game.is_winning(game.current_player):
             return jsonify(winner=game.current_player)
         game.current_player = -game.current_player
-        make_random_move()
+        # make_random_move()
+
+
+        # return str(game.get_moves_list(game.current_player))
+
+
+
         if game.is_winning(game.current_player):
             return jsonify(winner=-game.current_player)
     return jsonify(board=game.board)

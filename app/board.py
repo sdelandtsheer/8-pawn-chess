@@ -61,12 +61,10 @@ class Board:
         self.board = [[player if x == (player * 2) else x for x in row] for row in self.board]
 
     def push_move(self, move):
-        from_row, from_col, to_row, to_col, is_ep = move
+        from_row, from_col, to_row, to_col = move
         this_pawn = self.board[from_row][from_col]
         self.board[from_row][from_col] = 0
         self.board[to_row][to_col] = this_pawn if abs(from_row - to_row) == 1 else this_pawn * 2
-        if is_ep:
-            self.board[from_row][to_col] = 0
 
     def is_winning(self, player):
         last_row = 1 if player == 1 else 6 # no need for very last row, if a pawn reaches 2nd or 7th row promotion is inevitable
