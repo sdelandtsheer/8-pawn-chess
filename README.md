@@ -38,6 +38,13 @@ Run the current verification suite:
 py -m unittest discover -s tests
 ```
 
+Run the slow tactical solver regressions explicitly:
+
+```powershell
+$env:RUN_SLOW_SOLVER_TESTS = "1"
+py -m unittest tests.test_validation
+```
+
 Run linting and formatting checks when `ruff` is installed:
 
 ```powershell
