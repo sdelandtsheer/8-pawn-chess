@@ -16,8 +16,11 @@ from solve import (
     WIN,
     SolveLimitReachedError,
     Solver,
+    _canonicalize_key,
     _legal_move_codes,
     _make_move_key,
+    _mirror_key,
+    _mirror_move,
     _unpack_key,
     best_move_to_text,
 )
@@ -130,6 +133,26 @@ class FastSolverParityTests(unittest.TestCase):
                         _make_move_key(white, black, turn, encode_move(move)),
                         state_key(make_move(state, move, validate=False)),
                     )
+
+    def test_mirror_key_round_trip(self) -> None:
+        for state in random_playout(initial_state(), seed=88, max_plies=30).states:
+            with self.subTest(state=state):
+                self.assertEqual(_mirror_key(_mirror_key(state_key(state))), state_key(state))
+
+    def test_mirror_move_round_trip(self) -> None:
+        for move in legal_moves(initial_state()):
+            with self.subTest(move=move):
+                self.assertEqual(_mirror_move(_mirror_move(encode_move(move))), encode_move(move))
+
+    def test_canonicalized_solver_maps_best_move_back_to_original_orientation(self) -> None:
+        state = state_with(["h7"], [], 0)
+        canonical_key, mirrored = _canonicalize_key(state_key(state))
+        self.assertTrue(mirrored)
+        self.assertLess(canonical_key, state_key(state))
+
+        result = Solver(use_symmetry=True).solve(state)
+        self.assertEqual(result.outcome, WIN)
+        self.assertEqual(best_move_to_text(result), "h7h8")
 
 
 if __name__ == "__main__":

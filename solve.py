@@ -33,6 +33,10 @@ NO_MOVE = -1
 MOVE_SORT_MASK = 0x3F
 EP_CODE_MASK = 0x7F
 NO_MOVE_CODE = 0
+MIRRORED_BYTES = tuple(
+    sum(((value >> source_file) & 1) << (7 - source_file) for source_file in range(8))
+    for value in range(256)
+)
 
 
 class Result(NamedTuple):
@@ -67,6 +71,7 @@ class Solver:
         *,
         progress_interval: int = 0,
         max_entered_states: int | None = None,
+        use_symmetry: bool = False,
         progress_stream=sys.stderr,
     ) -> None:
         if progress_interval < 0:
@@ -77,6 +82,7 @@ class Solver:
         self.stats = SolverStats()
         self.progress_interval = progress_interval
         self.max_entered_states = max_entered_states
+        self.use_symmetry = use_symmetry
         self.progress_stream = progress_stream
         self._started_at = time.perf_counter()
         self._last_progress_entered = 0
@@ -85,6 +91,13 @@ class Solver:
         return _unpack_result(self._solve_key(state_key(normalize_state(state)), depth=0))
 
     def _solve_key(self, key: int, *, depth: int) -> int:
+        if not self.use_symmetry:
+            return self._solve_canonical_key(key, depth=depth)
+        canonical_key, mirrored = _canonicalize_key(key)
+        result = self._solve_canonical_key(canonical_key, depth=depth)
+        return _mirror_result(result) if mirrored else result
+
+    def _solve_canonical_key(self, key: int, *, depth: int) -> int:
         cached = self.memo.get(key)
         if cached is not None:
             self.stats.cache_hits += 1
@@ -197,6 +210,56 @@ def _unpack_result_parts(packed: int) -> tuple[int, int, int]:
 
 def _unpack_result(packed: int) -> Result:
     return Result(*_unpack_result_parts(packed))
+
+
+def _mirror_square(square: int) -> int:
+    return square ^ 7
+
+
+def _mirror_bitboard(bitboard: int) -> int:
+    return (
+        MIRRORED_BYTES[bitboard & 0xFF]
+        | (MIRRORED_BYTES[(bitboard >> 8) & 0xFF] << 8)
+        | (MIRRORED_BYTES[(bitboard >> 16) & 0xFF] << 16)
+        | (MIRRORED_BYTES[(bitboard >> 24) & 0xFF] << 24)
+        | (MIRRORED_BYTES[(bitboard >> 32) & 0xFF] << 32)
+        | (MIRRORED_BYTES[(bitboard >> 40) & 0xFF] << 40)
+        | (MIRRORED_BYTES[(bitboard >> 48) & 0xFF] << 48)
+        | (MIRRORED_BYTES[(bitboard >> 56) & 0xFF] << 56)
+    )
+
+
+def _mirror_move(move_code: int) -> int:
+    if move_code == NO_MOVE:
+        return NO_MOVE
+    return _encode_move_parts(
+        _mirror_square(_move_from(move_code)),
+        _mirror_square(_move_to(move_code)),
+        _move_flags(move_code),
+    )
+
+
+def _mirror_result(packed: int) -> int:
+    outcome, dtm, best_move = _unpack_result_parts(packed)
+    return _pack_result(outcome, dtm, _mirror_move(best_move))
+
+
+def _mirror_key(key: int) -> int:
+    white, black, turn, ep_square = _unpack_key(key)
+    mirrored_ep = NO_EP if ep_square == NO_EP else _mirror_square(ep_square)
+    return _pack_key(
+        _mirror_bitboard(white),
+        _mirror_bitboard(black),
+        turn,
+        mirrored_ep,
+    )
+
+
+def _canonicalize_key(key: int) -> tuple[int, bool]:
+    mirrored = _mirror_key(key)
+    if mirrored < key:
+        return mirrored, True
+    return key, False
 
 
 def _pack_key(white: int, black: int, turn: int, ep_square: int) -> int:
@@ -416,10 +479,12 @@ def best_move_to_text(result: Result) -> str:
 def solve_initial(
     progress_interval: int,
     max_entered_states: int | None = None,
+    use_symmetry: bool = False,
 ) -> tuple[Result, Solver, float]:
     solver = Solver(
         progress_interval=progress_interval,
         max_entered_states=max_entered_states,
+        use_symmetry=use_symmetry,
     )
     started = time.perf_counter()
     result = solver.solve(initial_state())
@@ -441,13 +506,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="stop after entering this many uncached states; useful for bounded measurement",
     )
+    parser.add_argument(
+        "--symmetry",
+        action="store_true",
+        help="canonicalize horizontal mirror positions internally",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        result, solver, elapsed = solve_initial(args.progress, args.max_entered)
+        result, solver, elapsed = solve_initial(args.progress, args.max_entered, args.symmetry)
     except SolveLimitReachedError as exc:
         print(str(exc), file=sys.stderr)
         return 2
