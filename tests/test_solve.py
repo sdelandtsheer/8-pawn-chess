@@ -37,6 +37,13 @@ class SolverTests(unittest.TestCase):
         self.assertEqual(result.dtm, 1)
         self.assertEqual(best_move_to_text(result), "a7a8")
 
+    def test_immediate_goal_move_does_not_search_siblings(self) -> None:
+        solver = Solver()
+        state = state_with(["a7", "b6"], ["h7"], 0)
+        solver.solve(state)
+        self.assertEqual(solver.stats.states_entered, 1)
+        self.assertEqual(solver.stats.states_solved, 1)
+
     def test_solver_result_is_cached_by_normalized_key(self) -> None:
         solver = Solver()
         state = state_with(["a7"], [], 0)

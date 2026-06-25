@@ -103,20 +103,23 @@ class Solver:
         if not moves:
             return self._store(key, Result(LOSS, 0, NO_MOVE))
 
+        for move in moves:
+            if move.flags & FLAG_WINNING:
+                return self._store(key, Result(WIN, 1, encode_move(move)))
+
         best_winning_move: Move | None = None
         best_win_dtm = sys.maxsize
         best_losing_move: Move | None = None
         best_loss_dtm = -1
 
         for move in moves:
-            if move.flags & FLAG_WINNING:
-                child_result = Result(LOSS, 0, NO_MOVE)
-            else:
-                child = make_move(state, move, validate=False)
-                child_result = self._solve_key(state_key(child), depth=depth + 1)
+            child = make_move(state, move, validate=False)
+            child_result = self._solve_key(state_key(child), depth=depth + 1)
 
             current_dtm = child_result.dtm + 1
             if child_result.outcome == LOSS:
+                if current_dtm == 1:
+                    return self._store(key, Result(WIN, 1, encode_move(move)))
                 if current_dtm < best_win_dtm:
                     best_win_dtm = current_dtm
                     best_winning_move = move
