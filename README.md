@@ -44,3 +44,15 @@ Run linting and formatting checks when `ruff` is installed:
 py -m ruff check .
 py -m ruff format --check .
 ```
+
+Run the recursive solver prototype:
+
+```powershell
+py solve.py --progress 100000
+```
+
+For bounded measurement runs while the full initial solve is still being optimized:
+
+```powershell
+py solve.py --progress 10000 --max-entered 100000
+```
