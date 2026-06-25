@@ -63,3 +63,10 @@ For bounded measurement runs while the full initial solve is still being optimiz
 ```powershell
 py solve.py --progress 10000 --max-entered 100000
 ```
+
+Measure reachable state-space properties:
+
+```powershell
+py measure.py --max-states 10000
+py measure.py --max-states 1000 --solve --solve-max-entered 1000 --progress 500
+```
