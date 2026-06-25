@@ -52,7 +52,7 @@ py -m ruff check .
 py -m ruff format --check .
 ```
 
-Run the recursive solver prototype:
+Run the recursive solver:
 
 ```powershell
 py solve.py --progress 100000
@@ -70,3 +70,41 @@ Measure reachable state-space properties:
 py measure.py --max-states 10000
 py measure.py --max-states 1000 --solve --solve-max-entered 1000 --progress 500
 ```
+
+## Tablebase Export Pipeline
+
+Run the full local pipeline:
+
+```powershell
+py -m unittest discover -s tests
+py -m ruff check .
+py -m ruff format --check .
+py export_tablebase.py --output-dir dist --gzip --progress 1000000 --export-progress 1000000 --log-file dist/export.log
+```
+
+The exporter solves the initial position exactly, then writes:
+
+- `dist/tablebase.jsonl`
+- `dist/tablebase.jsonl.gz`
+- `dist/tablebase.metadata.json`
+- `dist/export.log`
+
+Console progress is printed during solving as:
+
+```text
+entered=1000000 solved=999959 cache_hits=646671 max_depth=47 elapsed=11.53s
+```
+
+Export progress is printed as:
+
+```text
+exported=1000000
+```
+
+Use a bounded dry run to verify logging without producing a partial table:
+
+```powershell
+py export_tablebase.py --output-dir dist --progress 1000 --max-entered 3000 --log-file dist/export.log --gzip
+```
+
+Bounded runs exit nonzero and intentionally do not write tablebase artifacts.

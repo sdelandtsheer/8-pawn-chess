@@ -9,24 +9,30 @@ from dataclasses import dataclass
 from typing import NamedTuple
 
 from rules import (
+    ALL_SQUARES,
+    BLACK,
+    FLAG_CAPTURE,
+    FLAG_DOUBLE,
+    FLAG_EN_PASSANT,
     FLAG_WINNING,
-    Move,
+    NO_EP,
+    RANK_1,
+    RANK_8,
+    WHITE,
     State,
     decode_move,
-    encode_move,
     initial_state,
-    legal_moves,
-    make_move,
     move_to_coord,
     normalize_state,
-    state_from_key,
     state_key,
-    terminal_winner,
 )
 
 WIN = 1
 LOSS = -1
 NO_MOVE = -1
+MOVE_SORT_MASK = 0x3F
+EP_CODE_MASK = 0x7F
+NO_MOVE_CODE = 0
 
 
 class Result(NamedTuple):
@@ -67,7 +73,7 @@ class Solver:
             raise ValueError("progress_interval must be non-negative")
         if max_entered_states is not None and max_entered_states < 1:
             raise ValueError("max_entered_states must be positive when set")
-        self.memo: dict[int, Result] = {}
+        self.memo: dict[int, int] = {}
         self.stats = SolverStats()
         self.progress_interval = progress_interval
         self.max_entered_states = max_entered_states
@@ -76,9 +82,9 @@ class Solver:
         self._last_progress_entered = 0
 
     def solve(self, state: State) -> Result:
-        return self._solve_key(state_key(normalize_state(state)), depth=0)
+        return _unpack_result(self._solve_key(state_key(normalize_state(state)), depth=0))
 
-    def _solve_key(self, key: int, *, depth: int) -> Result:
+    def _solve_key(self, key: int, *, depth: int) -> int:
         cached = self.memo.get(key)
         if cached is not None:
             self.stats.cache_hits += 1
@@ -94,54 +100,56 @@ class Solver:
                 f"stopped after entering {self.stats.states_entered} uncached states"
             )
         self._log_progress()
-        state = state_from_key(key)
 
-        if terminal_winner(state) is not None:
-            return self._store(key, Result(LOSS, 0, NO_MOVE))
+        white, black, turn, ep_square = _unpack_key(key)
+        if _is_terminal_parts(white, black):
+            return self._store(key, _pack_result(LOSS, 0, NO_MOVE))
 
-        moves = legal_moves(state)
+        moves = _legal_move_codes(white, black, turn, ep_square)
         if not moves:
-            return self._store(key, Result(LOSS, 0, NO_MOVE))
+            return self._store(key, _pack_result(LOSS, 0, NO_MOVE))
 
-        for move in moves:
-            if move.flags & FLAG_WINNING:
-                return self._store(key, Result(WIN, 1, encode_move(move)))
+        for move_code in moves:
+            if _move_flags(move_code) & FLAG_WINNING:
+                return self._store(key, _pack_result(WIN, 1, move_code))
 
-        best_winning_move: Move | None = None
+        best_winning_move = NO_MOVE
         best_win_dtm = sys.maxsize
-        best_losing_move: Move | None = None
+        best_losing_move = NO_MOVE
         best_loss_dtm = -1
 
-        for move in moves:
-            child = make_move(state, move, validate=False)
-            child_result = self._solve_key(state_key(child), depth=depth + 1)
-
-            current_dtm = child_result.dtm + 1
-            if child_result.outcome == LOSS:
-                if current_dtm == 1:
-                    return self._store(key, Result(WIN, 1, encode_move(move)))
-                if current_dtm < best_win_dtm:
-                    best_win_dtm = current_dtm
-                    best_winning_move = move
-            elif current_dtm > best_loss_dtm:
-                best_loss_dtm = current_dtm
-                best_losing_move = move
-
-        if best_winning_move is not None:
-            return self._store(
-                key,
-                Result(WIN, best_win_dtm, encode_move(best_winning_move)),
+        for move_code in moves:
+            child_key = _make_move_key(white, black, turn, move_code)
+            child_outcome, child_dtm, _ = _unpack_result_parts(
+                self._solve_key(child_key, depth=depth + 1)
             )
 
-        if best_losing_move is None:
+            current_dtm = child_dtm + 1
+            if child_outcome == LOSS:
+                if current_dtm == 1:
+                    return self._store(key, _pack_result(WIN, 1, move_code))
+                if current_dtm < best_win_dtm:
+                    best_win_dtm = current_dtm
+                    best_winning_move = move_code
+            elif current_dtm > best_loss_dtm:
+                best_loss_dtm = current_dtm
+                best_losing_move = move_code
+
+        if best_winning_move != NO_MOVE:
+            return self._store(
+                key,
+                _pack_result(WIN, best_win_dtm, best_winning_move),
+            )
+
+        if best_losing_move == NO_MOVE:
             raise RuntimeError("non-terminal state had moves but no best move was selected")
 
         return self._store(
             key,
-            Result(LOSS, best_loss_dtm, encode_move(best_losing_move)),
+            _pack_result(LOSS, best_loss_dtm, best_losing_move),
         )
 
-    def _store(self, key: int, result: Result) -> Result:
+    def _store(self, key: int, result: int) -> int:
         self.memo[key] = result
         self.stats.states_solved += 1
         self._log_progress()
@@ -165,6 +173,238 @@ class Solver:
                 file=self.progress_stream,
                 flush=True,
             )
+
+
+def _pack_result(outcome: int, dtm: int, best_move: int) -> int:
+    if outcome not in (WIN, LOSS):
+        raise ValueError(f"invalid outcome: {outcome}")
+    if dtm < 0:
+        raise ValueError(f"dtm must be non-negative: {dtm}")
+    move_field = NO_MOVE_CODE if best_move == NO_MOVE else best_move + 1
+    if move_field < 0 or move_field > 0x10000:
+        raise ValueError(f"invalid best move: {best_move}")
+    outcome_bit = 1 if outcome == WIN else 0
+    return outcome_bit | (dtm << 1) | (move_field << 17)
+
+
+def _unpack_result_parts(packed: int) -> tuple[int, int, int]:
+    outcome = WIN if packed & 1 else LOSS
+    dtm = (packed >> 1) & 0xFFFF
+    move_field = packed >> 17
+    best_move = NO_MOVE if move_field == NO_MOVE_CODE else move_field - 1
+    return outcome, dtm, best_move
+
+
+def _unpack_result(packed: int) -> Result:
+    return Result(*_unpack_result_parts(packed))
+
+
+def _pack_key(white: int, black: int, turn: int, ep_square: int) -> int:
+    ep_square = _normalize_ep_square(white, black, turn, ep_square)
+    ep_code = 0 if ep_square == NO_EP else ep_square + 1
+    return white | (black << 64) | (turn << 128) | (ep_code << 129)
+
+
+def _unpack_key(key: int) -> tuple[int, int, int, int]:
+    white = key & ALL_SQUARES
+    black = (key >> 64) & ALL_SQUARES
+    turn = (key >> 128) & 1
+    ep_code = (key >> 129) & EP_CODE_MASK
+    ep_square = NO_EP if ep_code == 0 else ep_code - 1
+    return white, black, turn, ep_square
+
+
+def _normalize_ep_square(white: int, black: int, turn: int, ep_square: int) -> int:
+    if ep_square == NO_EP:
+        return NO_EP
+    if not _ep_capture_exists(white, black, turn, ep_square):
+        return NO_EP
+    return ep_square
+
+
+def _ep_capture_exists(white: int, black: int, turn: int, ep_square: int) -> bool:
+    ep_file = ep_square & 7
+    if turn == WHITE:
+        captured_square = ep_square - 8
+        if captured_square < 0 or not (black & (1 << captured_square)):
+            return False
+        pawns = white
+        candidates = (ep_square - 9, ep_square - 7)
+    else:
+        captured_square = ep_square + 8
+        if captured_square >= 64 or not (white & (1 << captured_square)):
+            return False
+        pawns = black
+        candidates = (ep_square + 7, ep_square + 9)
+
+    for from_square in candidates:
+        if (
+            0 <= from_square < 64
+            and abs((from_square & 7) - ep_file) == 1
+            and pawns & (1 << from_square)
+        ):
+            return True
+    return False
+
+
+def _is_terminal_parts(white: int, black: int) -> bool:
+    return bool((white & RANK_8) or (black & RANK_1))
+
+
+def _encode_move_parts(from_square: int, to_square: int, flags: int) -> int:
+    return from_square | (to_square << 6) | (flags << 12)
+
+
+def _move_from(move_code: int) -> int:
+    return move_code & MOVE_SORT_MASK
+
+
+def _move_to(move_code: int) -> int:
+    return (move_code >> 6) & MOVE_SORT_MASK
+
+
+def _move_flags(move_code: int) -> int:
+    return (move_code >> 12) & 0xF
+
+
+def _move_sort_key(move_code: int) -> tuple[int, int, int]:
+    return (_move_from(move_code), _move_to(move_code), _move_flags(move_code))
+
+
+def _legal_move_codes(white: int, black: int, turn: int, ep_square: int) -> list[int]:
+    if _is_terminal_parts(white, black):
+        return []
+
+    occupied = white | black
+    moves: list[int] = []
+    if turn == WHITE:
+        pawns = white
+        enemies = black
+        while pawns:
+            pawn_bit = pawns & -pawns
+            from_square = pawn_bit.bit_length() - 1
+            pawns ^= pawn_bit
+
+            file_ = from_square & 7
+            if file_ > 0:
+                target = from_square + 7
+                target_bit = 1 << target
+                if enemies & target_bit:
+                    flags = FLAG_CAPTURE | (FLAG_WINNING if target >= 56 else 0)
+                    moves.append(_encode_move_parts(from_square, target, flags))
+                elif target == ep_square:
+                    moves.append(
+                        _encode_move_parts(
+                            from_square,
+                            target,
+                            FLAG_CAPTURE | FLAG_EN_PASSANT,
+                        )
+                    )
+
+            one_step = from_square + 8
+            one_step_is_empty = one_step < 64 and not (occupied & (1 << one_step))
+            if one_step_is_empty:
+                flags = FLAG_WINNING if one_step >= 56 else 0
+                moves.append(_encode_move_parts(from_square, one_step, flags))
+
+            if file_ < 7:
+                target = from_square + 9
+                target_bit = 1 << target
+                if enemies & target_bit:
+                    flags = FLAG_CAPTURE | (FLAG_WINNING if target >= 56 else 0)
+                    moves.append(_encode_move_parts(from_square, target, flags))
+                elif target == ep_square:
+                    moves.append(
+                        _encode_move_parts(
+                            from_square,
+                            target,
+                            FLAG_CAPTURE | FLAG_EN_PASSANT,
+                        )
+                    )
+
+            if one_step_is_empty:
+                two_step = from_square + 16
+                if 8 <= from_square <= 15 and not (occupied & (1 << two_step)):
+                    moves.append(_encode_move_parts(from_square, two_step, FLAG_DOUBLE))
+    else:
+        pawns = black
+        enemies = white
+        while pawns:
+            pawn_bit = pawns & -pawns
+            from_square = pawn_bit.bit_length() - 1
+            pawns ^= pawn_bit
+
+            one_step = from_square - 8
+            one_step_is_empty = one_step >= 0 and not (occupied & (1 << one_step))
+            if one_step_is_empty:
+                two_step = from_square - 16
+                if 48 <= from_square <= 55 and not (occupied & (1 << two_step)):
+                    moves.append(_encode_move_parts(from_square, two_step, FLAG_DOUBLE))
+
+            file_ = from_square & 7
+            if file_ > 0:
+                target = from_square - 9
+                target_bit = 1 << target
+                if enemies & target_bit:
+                    flags = FLAG_CAPTURE | (FLAG_WINNING if target <= 7 else 0)
+                    moves.append(_encode_move_parts(from_square, target, flags))
+                elif target == ep_square:
+                    moves.append(
+                        _encode_move_parts(
+                            from_square,
+                            target,
+                            FLAG_CAPTURE | FLAG_EN_PASSANT,
+                        )
+                    )
+
+            if one_step_is_empty:
+                flags = FLAG_WINNING if one_step <= 7 else 0
+                moves.append(_encode_move_parts(from_square, one_step, flags))
+
+            if file_ < 7:
+                target = from_square - 7
+                target_bit = 1 << target
+                if enemies & target_bit:
+                    flags = FLAG_CAPTURE | (FLAG_WINNING if target <= 7 else 0)
+                    moves.append(_encode_move_parts(from_square, target, flags))
+                elif target == ep_square:
+                    moves.append(
+                        _encode_move_parts(
+                            from_square,
+                            target,
+                            FLAG_CAPTURE | FLAG_EN_PASSANT,
+                        )
+                    )
+
+    return moves
+
+
+def _make_move_key(white: int, black: int, turn: int, move_code: int) -> int:
+    from_square = _move_from(move_code)
+    to_square = _move_to(move_code)
+    flags = _move_flags(move_code)
+    from_bit = 1 << from_square
+    to_bit = 1 << to_square
+    ep_square = NO_EP
+
+    if turn == WHITE:
+        white = (white & ~from_bit) | to_bit
+        if flags & FLAG_EN_PASSANT:
+            black &= ~(1 << (to_square - 8))
+        else:
+            black &= ~to_bit
+        if flags & FLAG_DOUBLE:
+            ep_square = from_square + 8
+        return _pack_key(white, black, BLACK, ep_square)
+
+    black = (black & ~from_bit) | to_bit
+    if flags & FLAG_EN_PASSANT:
+        white &= ~(1 << (to_square + 8))
+    else:
+        white &= ~to_bit
+    if flags & FLAG_DOUBLE:
+        ep_square = from_square - 8
+    return _pack_key(white, black, WHITE, ep_square)
 
 
 def best_move_to_text(result: Result) -> str:

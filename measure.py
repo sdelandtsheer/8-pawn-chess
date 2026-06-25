@@ -22,7 +22,7 @@ from rules import (
     state_key,
     terminal_winner,
 )
-from solve import LOSS, WIN, SolveLimitReachedError, Solver
+from solve import LOSS, WIN, SolveLimitReachedError, Solver, _unpack_result
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,7 +141,7 @@ def measure_solve(
         complete = False
 
     elapsed = time.perf_counter() - started
-    outcomes = Counter(result.outcome for result in solver.memo.values())
+    outcomes = Counter(_unpack_result(result).outcome for result in solver.memo.values())
     return SolveMeasurement(
         complete=complete,
         elapsed_seconds=elapsed,
