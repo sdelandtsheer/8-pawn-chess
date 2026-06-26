@@ -25,10 +25,23 @@ The generated HTML keeps the existing interface structure and styling, but chang
 
 ## Local Test Flow
 
-1. Open `browser/wix_width4_tablebase.html` in a browser.
-2. Choose `dist/w4/tablebase.jsonl.gz` in the modal file picker.
-3. Start the game.
-4. If playing Black, the tablebase should immediately play `b2b4` for White.
+1. Host the repo locally:
+
+```powershell
+py -m http.server 8000
+```
+
+2. In `browser/wix_width4_tablebase.html`, set:
+
+```javascript
+const TABLEBASE_URL = "http://localhost:8000/dist/w4/tablebase.jsonl.gz";
+```
+
+3. Open `browser/wix_width4_tablebase.html` in a browser.
+4. Start the game once the button is enabled.
+5. If playing Black, the tablebase should immediately play `b2b4` for White.
+
+The welcome modal is intentionally minimal: only `Blancs`, `Noirs`, and `Commencer`.
 
 ## Wix Flow
 
