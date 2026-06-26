@@ -29,3 +29,13 @@ assert.strictEqual(core.moveCoord(core.decodeMove(entry.bestMove)), "b2b4");
 
 const next = core.makeMove(state, decoded, 4);
 assert.strictEqual(next.turn, "b");
+
+function computerCanForceWin(entryForPosition, turn, engineSide) {
+  if (turn === engineSide) return entryForPosition.outcome === 1;
+  return entryForPosition.outcome === -1;
+}
+
+assert.strictEqual(computerCanForceWin(entry, "w", "b"), false);
+assert.strictEqual(computerCanForceWin({ outcome: -1 }, "w", "b"), true);
+assert.strictEqual(computerCanForceWin({ outcome: 1 }, "b", "b"), true);
+assert.strictEqual(computerCanForceWin({ outcome: -1 }, "b", "b"), false);

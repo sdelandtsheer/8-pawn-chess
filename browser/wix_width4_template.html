@@ -13,7 +13,7 @@
 
     <div id="engine-panel">
       <div id="depth-display">Tablebase : —</div>
-      <div id="eval-display">Position : —</div>
+      <div id="eval-display">🙂 : —</div>
       <div id="nodes-display">DTM : —</div>
     </div>
 
@@ -401,7 +401,7 @@
 
   function updateEnginePanel(tableText, evalText, dtmText) {
     depthDisplayDiv.textContent = "Tablebase : " + tableText;
-    evalDisplayDiv.textContent = "Position : " + evalText;
+    evalDisplayDiv.textContent = "🙂 : " + evalText;
     nodesDisplayDiv.textContent = "DTM : " + dtmText;
   }
 
@@ -756,9 +756,14 @@
     };
   }
 
-  function describeOutcome(entry) {
-    if (!entry) return "miss";
-    return entry.outcome === 1 ? "gain côté au trait" : "perte côté au trait";
+  function computerCanForceWin(entry) {
+    if (!entry || !state) return false;
+    if (state.turn === engineSide) return entry.outcome === 1;
+    return entry.outcome === -1;
+  }
+
+  function tablebaseMood(entry) {
+    return computerCanForceWin(entry) ? "🙂" : "—";
   }
 
   function playHumanMove(move) {
@@ -776,7 +781,11 @@
     }
 
     const lookup = tablebaseLookup(state);
-    updateEnginePanel(formatTablebaseRows(tablebase.size), describeOutcome(lookup.entry), lookup.entry ? String(lookup.entry.dtm) : "—");
+    updateEnginePanel(
+      formatTablebaseRows(tablebase.size),
+      tablebaseMood(lookup.entry),
+      lookup.entry ? String(lookup.entry.dtm) : "—"
+    );
     updateStatus("L’ordinateur joue depuis la tablebase...");
     setTimeout(requestEngineMove, 80);
   }
@@ -817,7 +826,7 @@
       move = findLegalDecodedMove(core.decodeMove(lookup.entry.bestMove));
       updateEnginePanel(
         formatTablebaseRows(tablebase.size),
-        describeOutcome(lookup.entry),
+        tablebaseMood(lookup.entry),
         String(lookup.entry.dtm)
       );
     }
@@ -872,7 +881,11 @@
     renderNotation();
 
     const lookup = tablebaseLookup(state);
-    updateEnginePanel(formatTablebaseRows(tablebase.size), describeOutcome(lookup.entry), lookup.entry ? String(lookup.entry.dtm) : "—");
+    updateEnginePanel(
+      formatTablebaseRows(tablebase.size),
+      tablebaseMood(lookup.entry),
+      lookup.entry ? String(lookup.entry.dtm) : "—"
+    );
 
     if (humanSide === "w") {
       updateStatus("À toi de jouer.");
