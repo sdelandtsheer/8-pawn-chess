@@ -1,3 +1,4 @@
+import os
 import unittest
 from io import StringIO
 
@@ -163,6 +164,18 @@ class FastSolverParityTests(unittest.TestCase):
         self.assertEqual(result.dtm, 8)
         self.assertEqual(best_move_to_text(result), "a2a3")
         self.assertEqual(solver.stats.states_solved, 515)
+
+    @unittest.skipUnless(
+        os.getenv("RUN_WIDTH4_SOLVER_TESTS") == "1",
+        "set RUN_WIDTH4_SOLVER_TESTS=1 to run width 4 exact solver regression",
+    )
+    def test_width_four_initial_position_solves(self) -> None:
+        solver = Solver(board_width=4)
+        result = solver.solve(initial_state(4))
+        self.assertEqual(result.outcome, WIN)
+        self.assertEqual(result.dtm, 21)
+        self.assertEqual(best_move_to_text(result), "b2b4")
+        self.assertEqual(solver.stats.states_solved, 1_033_490)
 
     def test_trace_logging_includes_tree_state_and_considered_moves(self) -> None:
         stream = StringIO()
