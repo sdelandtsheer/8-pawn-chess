@@ -1,0 +1,1372 @@
+<div id="pawn-chess-app">
+  <div id="start-modal" class="modal-backdrop">
+    <div class="modal-box">
+      <h2>Jeu des 8 pions</h2>
+
+      <div class="modal-section">
+        <div class="label">Choisis ta couleur</div>
+        <label><input type="radio" name="side" value="w" checked> Blancs</label>
+        <label><input type="radio" name="side" value="b"> Noirs</label>
+      </div>
+
+      <div class="modal-section">
+        <div class="label">Tablebase largeur 4</div>
+        <input id="tablebase-file" type="file" accept=".jsonl,.gz,.jsonl.gz">
+        <div id="tablebase-load-status">Charge un fichier tablebase ou configure TABLEBASE_URL.</div>
+      </div>
+
+      <div class="engine-note">
+        L’ordinateur joue depuis la tablebase exacte. Aucune recherche profonde dans le navigateur.
+      </div>
+
+      <button id="start-button" type="button" disabled>Commencer</button>
+    </div>
+  </div>
+
+  <div class="game-shell">
+    <div id="status">Charge la tablebase largeur 4.</div>
+
+    <div id="engine-panel">
+      <div id="depth-display">Tablebase : —</div>
+      <div id="eval-display">Position : —</div>
+      <div id="nodes-display">DTM : —</div>
+    </div>
+
+    <div id="board"></div>
+
+    <div id="small-info">
+      Objectif : amener un pion de l’autre côté. Aucun coup légal = défaite.
+    </div>
+
+    <div id="notation-box">
+      <div id="notation-title">Notation</div>
+      <div id="notation-content">La partie apparaîtra ici.</div>
+    </div>
+  </div>
+</div>
+
+<style>
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  #pawn-chess-app {
+    width: 100%;
+    max-width: 650px;
+    margin: 0 auto;
+    padding: 8px;
+    box-sizing: border-box;
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    color: #1f2937;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .game-shell {
+    width: 100%;
+    text-align: center;
+  }
+
+  #status {
+    min-height: 32px;
+    margin: 8px 0;
+    font-size: clamp(15px, 4vw, 18px);
+    font-weight: 800;
+    color: #111827;
+  }
+
+  #engine-panel {
+    width: min(94vw, 560px);
+    max-width: 100%;
+    margin: 0 auto 10px auto;
+    padding: 9px 12px;
+    display: grid;
+    grid-template-columns: 1fr 1.6fr 1fr;
+    gap: 8px;
+    align-items: center;
+    box-sizing: border-box;
+    border-radius: 12px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    color: #374151;
+    font-size: clamp(11px, 3vw, 13px);
+    font-weight: 700;
+    text-align: left;
+  }
+
+  #eval-display {
+    text-align: center;
+  }
+
+  #nodes-display {
+    text-align: right;
+  }
+
+  #small-info {
+    margin: 12px auto 0 auto;
+    max-width: 520px;
+    font-size: clamp(12px, 3.2vw, 13px);
+    line-height: 1.35;
+    color: #6b7280;
+  }
+
+  #board {
+    width: min(94vw, 560px);
+    max-width: 100%;
+    aspect-ratio: 1 / 1;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    grid-template-rows: repeat(8, 1fr);
+    border-radius: clamp(10px, 3vw, 18px);
+    overflow: hidden;
+    border: 1px solid rgba(17, 24, 39, 0.18);
+    box-shadow:
+      0 14px 36px rgba(15, 23, 42, 0.18),
+      0 2px 8px rgba(15, 23, 42, 0.10);
+    user-select: none;
+    touch-action: none;
+    background: #111827;
+  }
+
+  .square {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    touch-action: none;
+  }
+
+  .inactive-file::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.24);
+    pointer-events: none;
+  }
+
+  .light {
+    background: #e8edf3;
+  }
+
+  .dark {
+    background: #7f8fa6;
+  }
+
+  .selected {
+    box-shadow: inset 0 0 0 clamp(3px, 0.8vw, 5px) rgba(37, 99, 235, 0.9);
+  }
+
+  .legal-target::after {
+    content: "";
+    width: 28%;
+    height: 28%;
+    border-radius: 50%;
+    background: rgba(16, 185, 129, 0.62);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0.15);
+    position: absolute;
+    pointer-events: none;
+  }
+
+  .drop-target {
+    box-shadow:
+      inset 0 0 0 clamp(3px, 0.8vw, 5px) rgba(16, 185, 129, 0.95),
+      inset 0 0 0 999px rgba(16, 185, 129, 0.10);
+  }
+
+  .last-move {
+    box-shadow: inset 0 0 0 clamp(3px, 0.8vw, 5px) rgba(245, 158, 11, 0.72);
+  }
+
+  .pawn {
+    width: 64%;
+    height: 64%;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 2;
+    box-shadow:
+      0 8px 18px rgba(15, 23, 42, 0.22),
+      inset 0 2px 5px rgba(255, 255, 255, 0.35),
+      inset 0 -4px 8px rgba(0, 0, 0, 0.18);
+    touch-action: none;
+    user-select: none;
+  }
+
+  .pawn.white-pawn {
+    background:
+      radial-gradient(circle at 35% 28%, #ffffff 0%, #f8fafc 36%, #dbeafe 100%);
+    border: 2px solid rgba(30, 64, 175, 0.24);
+  }
+
+  .pawn.black-pawn {
+    background:
+      radial-gradient(circle at 35% 28%, #64748b 0%, #1e293b 48%, #020617 100%);
+    border: 2px solid rgba(255, 255, 255, 0.18);
+  }
+
+  .pawn-symbol {
+    font-size: clamp(24px, 9vw, 46px);
+    line-height: 1;
+    transform: translateY(-1px);
+    pointer-events: none;
+  }
+
+  .white-pawn .pawn-symbol {
+    color: #1e3a8a;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+  }
+
+  .black-pawn .pawn-symbol {
+    color: #f8fafc;
+    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+  }
+
+  .hidden-during-drag {
+    opacity: 0.25;
+  }
+
+  #floating-pawn {
+    position: fixed;
+    z-index: 1000000;
+    width: 52px;
+    height: 52px;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
+
+  #notation-box {
+    width: min(94vw, 560px);
+    max-width: 100%;
+    margin: 16px auto 0 auto;
+    padding: 14px 16px;
+    box-sizing: border-box;
+    text-align: left;
+    border-radius: 16px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  }
+
+  #notation-title {
+    font-size: 14px;
+    font-weight: 800;
+    color: #111827;
+    margin-bottom: 8px;
+  }
+
+  #notation-content {
+    min-height: 44px;
+    max-height: 130px;
+    overflow-y: auto;
+    font-family: "Courier New", Courier, monospace;
+    font-size: clamp(12px, 3.3vw, 14px);
+    line-height: 1.45;
+    color: #374151;
+    white-space: normal;
+    word-break: break-word;
+  }
+
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+    background:
+      radial-gradient(circle at top, rgba(59, 130, 246, 0.22), transparent 42%),
+      rgba(15, 23, 42, 0.74);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    box-sizing: border-box;
+  }
+
+  .modal-box {
+    width: min(94vw, 440px);
+    max-height: 94vh;
+    overflow-y: auto;
+    background: rgba(255, 255, 255, 0.98);
+    border-radius: 20px;
+    padding: clamp(18px, 5vw, 26px);
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+    text-align: left;
+    border: 1px solid rgba(255, 255, 255, 0.60);
+    box-sizing: border-box;
+  }
+
+  .modal-box h2 {
+    margin: 0 0 18px 0;
+    font-size: clamp(23px, 7vw, 30px);
+    text-align: center;
+    color: #111827;
+  }
+
+  .modal-section {
+    margin: 14px 0;
+    padding: 13px;
+    border-radius: 14px;
+    background: #f8fafc;
+    border: 1px solid #e5e7eb;
+  }
+
+  .modal-section label {
+    display: block;
+    margin: 9px 0;
+    font-size: clamp(14px, 4vw, 16px);
+    color: #374151;
+  }
+
+  .modal-section input {
+    margin-right: 8px;
+  }
+
+  #tablebase-file {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  #tablebase-load-status {
+    margin-top: 8px;
+    color: #475569;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  .label {
+    font-weight: 800;
+    margin-bottom: 8px;
+    color: #111827;
+  }
+
+  .engine-note {
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    color: #1e3a8a;
+    font-size: 14px;
+    line-height: 1.35;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  #start-button {
+    width: 100%;
+    margin-top: 16px;
+    padding: 13px 18px;
+    border: 0;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #111827, #334155);
+    color: white;
+    font-size: clamp(15px, 4.2vw, 17px);
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+  }
+
+  #start-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+
+  @media (max-width: 420px) {
+    #pawn-chess-app {
+      padding: 6px;
+    }
+
+    #board {
+      width: min(96vw, 560px);
+      border-radius: 12px;
+    }
+
+    .pawn {
+      width: 68%;
+      height: 68%;
+    }
+
+    #engine-panel {
+      width: min(96vw, 560px);
+      grid-template-columns: 1fr;
+      gap: 3px;
+    }
+
+    #eval-display,
+    #nodes-display {
+      text-align: left;
+    }
+
+    #small-info {
+      padding: 0 6px;
+    }
+
+    #notation-box {
+      width: min(96vw, 560px);
+      padding: 12px 13px;
+    }
+  }
+</style>
+
+<script>
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) {
+    module.exports = factory();
+  } else {
+    root.PawnTablebaseCore = factory();
+  }
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  "use strict";
+
+  const WHITE = "w";
+  const BLACK = "b";
+  const FLAG_CAPTURE = 1;
+  const FLAG_DOUBLE = 2;
+  const FLAG_EN_PASSANT = 4;
+  const FLAG_WINNING = 8;
+  const FILES = "abcdefgh";
+
+  function assertBoardWidth(boardWidth) {
+    if (![2, 4, 6, 8].includes(boardWidth)) {
+      throw new Error("boardWidth must be 2, 4, 6, or 8");
+    }
+  }
+
+  function rowOf(index) {
+    return Math.floor(index / 8);
+  }
+
+  function fileOf(index) {
+    return index % 8;
+  }
+
+  function squareName(index) {
+    return FILES[fileOf(index)] + String(8 - rowOf(index));
+  }
+
+  function uiToTablebaseSquare(index) {
+    return (7 - rowOf(index)) * 8 + fileOf(index);
+  }
+
+  function tablebaseToUiSquare(square) {
+    const file = square % 8;
+    const rankIndex = Math.floor(square / 8);
+    return (7 - rankIndex) * 8 + file;
+  }
+
+  function isActiveSquare(index, boardWidth) {
+    assertBoardWidth(boardWidth);
+    return fileOf(index) < boardWidth;
+  }
+
+  function sideOfPiece(piece) {
+    if (piece === "P") return WHITE;
+    if (piece === "p") return BLACK;
+    return null;
+  }
+
+  function opposite(side) {
+    return side === WHITE ? BLACK : WHITE;
+  }
+
+  function initialState(boardWidth) {
+    assertBoardWidth(boardWidth);
+    const board = new Array(64).fill(null);
+
+    for (let file = 0; file < boardWidth; file++) {
+      board[8 + file] = "p";
+      board[48 + file] = "P";
+    }
+
+    return {
+      board: board,
+      turn: WHITE,
+      epSquare: -1,
+      winner: null,
+      winReason: null
+    };
+  }
+
+  function cloneState(state) {
+    return {
+      board: state.board.slice(),
+      turn: state.turn,
+      epSquare: state.epSquare,
+      winner: state.winner,
+      winReason: state.winReason || null
+    };
+  }
+
+  function isGoalSquare(side, index) {
+    const row = rowOf(index);
+    return (side === WHITE && row === 0) || (side === BLACK && row === 7);
+  }
+
+  function normalizeEpSquare(state, boardWidth) {
+    assertBoardWidth(boardWidth);
+    if (state.epSquare === -1 || !isActiveSquare(state.epSquare, boardWidth)) return -1;
+
+    const side = state.turn;
+    const ownPiece = side === WHITE ? "P" : "p";
+    const enemyPiece = side === WHITE ? "p" : "P";
+    const capturedPawnSquare = side === WHITE ? state.epSquare + 8 : state.epSquare - 8;
+
+    if (
+      capturedPawnSquare < 0 ||
+      capturedPawnSquare >= 64 ||
+      state.board[capturedPawnSquare] !== enemyPiece
+    ) {
+      return -1;
+    }
+
+    const offsets = side === WHITE ? [7, 9] : [-7, -9];
+    const epFile = fileOf(state.epSquare);
+
+    for (const offset of offsets) {
+      const from = state.epSquare + offset;
+      if (from < 0 || from >= 64) continue;
+      if (!isActiveSquare(from, boardWidth)) continue;
+      if (Math.abs(fileOf(from) - epFile) !== 1) continue;
+      if (state.board[from] === ownPiece) return state.epSquare;
+    }
+
+    return -1;
+  }
+
+  function stateKey(state, boardWidth) {
+    assertBoardWidth(boardWidth);
+    let white = 0n;
+    let black = 0n;
+
+    for (let index = 0; index < 64; index++) {
+      const piece = state.board[index];
+      if (!piece || !isActiveSquare(index, boardWidth)) continue;
+
+      const bit = 1n << BigInt(uiToTablebaseSquare(index));
+      if (piece === "P") {
+        white |= bit;
+      } else if (piece === "p") {
+        black |= bit;
+      }
+    }
+
+    const turn = state.turn === BLACK ? 1n : 0n;
+    const epSquare = normalizeEpSquare(state, boardWidth);
+    const epCode = epSquare === -1 ? 0n : BigInt(uiToTablebaseSquare(epSquare) + 1);
+
+    return (white | (black << 64n) | (turn << 128n) | (epCode << 129n)).toString(16);
+  }
+
+  function generateLegalMoves(state, boardWidth) {
+    assertBoardWidth(boardWidth);
+    if (state.winner) return [];
+
+    const moves = [];
+    const side = state.turn;
+    const ownPiece = side === WHITE ? "P" : "p";
+    const enemyPiece = side === WHITE ? "p" : "P";
+    const dir = side === WHITE ? -8 : 8;
+    const startRow = side === WHITE ? 6 : 1;
+
+    for (let from = 0; from < 64; from++) {
+      if (state.board[from] !== ownPiece || !isActiveSquare(from, boardWidth)) continue;
+
+      const row = rowOf(from);
+      const file = fileOf(from);
+      const one = from + dir;
+
+      if (
+        one >= 0 &&
+        one < 64 &&
+        isActiveSquare(one, boardWidth) &&
+        state.board[one] === null
+      ) {
+        moves.push({
+          from: from,
+          to: one,
+          capture: false,
+          enPassant: false,
+          doubleMove: false,
+          winning: isGoalSquare(side, one)
+        });
+
+        const two = from + 2 * dir;
+
+        if (
+          row === startRow &&
+          two >= 0 &&
+          two < 64 &&
+          isActiveSquare(two, boardWidth) &&
+          state.board[two] === null
+        ) {
+          moves.push({
+            from: from,
+            to: two,
+            capture: false,
+            enPassant: false,
+            doubleMove: true,
+            winning: false
+          });
+        }
+      }
+
+      const captureOffsets = side === WHITE ? [-9, -7] : [7, 9];
+
+      for (const offset of captureOffsets) {
+        const to = from + offset;
+        if (to < 0 || to >= 64 || !isActiveSquare(to, boardWidth)) continue;
+        if (Math.abs(fileOf(to) - file) !== 1) continue;
+
+        if (state.board[to] === enemyPiece) {
+          moves.push({
+            from: from,
+            to: to,
+            capture: true,
+            enPassant: false,
+            doubleMove: false,
+            winning: isGoalSquare(side, to)
+          });
+        }
+
+        if (to === state.epSquare) {
+          const capturedPawnSquare = side === WHITE ? to + 8 : to - 8;
+
+          if (
+            capturedPawnSquare >= 0 &&
+            capturedPawnSquare < 64 &&
+            state.board[capturedPawnSquare] === enemyPiece
+          ) {
+            moves.push({
+              from: from,
+              to: to,
+              capture: true,
+              enPassant: true,
+              doubleMove: false,
+              winning: false
+            });
+          }
+        }
+      }
+    }
+
+    return moves;
+  }
+
+  function makeMove(state, move, boardWidth) {
+    assertBoardWidth(boardWidth);
+    const next = cloneState(state);
+    const piece = next.board[move.from];
+    const side = sideOfPiece(piece);
+    const otherSide = opposite(side);
+
+    next.board[move.from] = null;
+
+    if (move.enPassant) {
+      const capturedPawnSquare = side === WHITE ? move.to + 8 : move.to - 8;
+      next.board[capturedPawnSquare] = null;
+    }
+
+    next.board[move.to] = piece;
+    next.epSquare = move.doubleMove ? Math.floor((move.from + move.to) / 2) : -1;
+    next.turn = otherSide;
+
+    if (isGoalSquare(side, move.to)) {
+      next.winner = side;
+      next.winReason = "goal";
+      return next;
+    }
+
+    if (generateLegalMoves(next, boardWidth).length === 0) {
+      next.winner = side;
+      next.winReason = "blocked";
+    }
+
+    return next;
+  }
+
+  function encodeMove(move) {
+    const flags =
+      (move.capture ? FLAG_CAPTURE : 0) |
+      (move.doubleMove ? FLAG_DOUBLE : 0) |
+      (move.enPassant ? FLAG_EN_PASSANT : 0) |
+      (move.winning ? FLAG_WINNING : 0);
+
+    return uiToTablebaseSquare(move.from) | (uiToTablebaseSquare(move.to) << 6) | (flags << 12);
+  }
+
+  function decodeMove(code) {
+    const from = code & 0x3f;
+    const to = (code >> 6) & 0x3f;
+    const flags = (code >> 12) & 0x0f;
+
+    return {
+      from: tablebaseToUiSquare(from),
+      to: tablebaseToUiSquare(to),
+      capture: Boolean(flags & FLAG_CAPTURE),
+      doubleMove: Boolean(flags & FLAG_DOUBLE),
+      enPassant: Boolean(flags & FLAG_EN_PASSANT),
+      winning: Boolean(flags & FLAG_WINNING),
+      code: code
+    };
+  }
+
+  function moveCoord(move) {
+    return squareName(move.from) + squareName(move.to);
+  }
+
+  function parseJsonlTablebase(text, progressCallback) {
+    const table = new Map();
+    const lines = text.split(/\r?\n/);
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      const row = JSON.parse(line);
+      table.set(row.key, {
+        outcome: row.outcome,
+        dtm: row.dtm,
+        bestMove: row.best_move
+      });
+
+      if (progressCallback && table.size % 50000 === 0) {
+        progressCallback(table.size);
+      }
+    }
+
+    return table;
+  }
+
+  async function blobToTextMaybeGzip(blob, fileName) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const isGzip =
+      bytes.length >= 2 &&
+      bytes[0] === 0x1f &&
+      bytes[1] === 0x8b &&
+      typeof DecompressionStream !== "undefined";
+
+    if (isGzip) {
+      const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+      return new Response(stream).text();
+    }
+
+    if (
+      bytes.length >= 2 &&
+      bytes[0] === 0x1f &&
+      bytes[1] === 0x8b &&
+      typeof DecompressionStream === "undefined"
+    ) {
+      throw new Error("This browser cannot decompress gzip tablebases.");
+    }
+
+    return new TextDecoder().decode(bytes);
+  }
+
+  async function fetchTablebase(url, progressCallback) {
+    const response = await fetch(url, { cache: "force-cache" });
+    if (!response.ok) {
+      throw new Error("Failed to load tablebase: HTTP " + response.status);
+    }
+
+    const text = await blobToTextMaybeGzip(await response.blob(), url);
+    return parseJsonlTablebase(text, progressCallback);
+  }
+
+  async function loadTablebaseFile(file, progressCallback) {
+    const text = await blobToTextMaybeGzip(file, file.name);
+    return parseJsonlTablebase(text, progressCallback);
+  }
+
+  return {
+    BLACK,
+    FLAG_CAPTURE,
+    FLAG_DOUBLE,
+    FLAG_EN_PASSANT,
+    FLAG_WINNING,
+    WHITE,
+    decodeMove,
+    encodeMove,
+    fetchTablebase,
+    generateLegalMoves,
+    initialState,
+    loadTablebaseFile,
+    makeMove,
+    moveCoord,
+    normalizeEpSquare,
+    parseJsonlTablebase,
+    squareName,
+    stateKey,
+    tablebaseToUiSquare,
+    uiToTablebaseSquare
+  };
+});
+
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  const BOARD_WIDTH = 4;
+  const TABLEBASE_URL = "";
+
+  const core = window.PawnTablebaseCore;
+  const boardDiv = document.getElementById("board");
+  const statusDiv = document.getElementById("status");
+  const depthDisplayDiv = document.getElementById("depth-display");
+  const evalDisplayDiv = document.getElementById("eval-display");
+  const nodesDisplayDiv = document.getElementById("nodes-display");
+  const notationContentDiv = document.getElementById("notation-content");
+  const modal = document.getElementById("start-modal");
+  const startButton = document.getElementById("start-button");
+  const tablebaseFileInput = document.getElementById("tablebase-file");
+  const tablebaseLoadStatus = document.getElementById("tablebase-load-status");
+
+  let state = null;
+  let humanSide = "w";
+  let engineSide = "b";
+  let selectedSquare = null;
+  let legalMovesForSelected = [];
+  let engineThinking = false;
+  let lastMove = null;
+  let moveHistory = [];
+  let tablebase = null;
+
+  let pointerDrag = {
+    active: false,
+    moved: false,
+    from: null,
+    piece: null,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    floating: null,
+    hiddenPieceElement: null
+  };
+
+  function updateStatus(text) {
+    statusDiv.textContent = text;
+  }
+
+  function updateEnginePanel(tableText, evalText, dtmText) {
+    depthDisplayDiv.textContent = "Tablebase : " + tableText;
+    evalDisplayDiv.textContent = "Position : " + evalText;
+    nodesDisplayDiv.textContent = "DTM : " + dtmText;
+  }
+
+  function setTablebaseStatus(text) {
+    tablebaseLoadStatus.textContent = text;
+  }
+
+  function formatTablebaseRows(n) {
+    if (!n) return "—";
+    if (n >= 1000000) return (n / 1000000).toFixed(2) + "M";
+    if (n >= 1000) return (n / 1000).toFixed(0) + "k";
+    return String(n);
+  }
+
+  async function installTablebase(loader) {
+    startButton.disabled = true;
+    setTablebaseStatus("Chargement de la tablebase...");
+    updateEnginePanel("chargement", "—", "—");
+
+    tablebase = await loader(function (rows) {
+      setTablebaseStatus("Chargé : " + formatTablebaseRows(rows) + " positions...");
+    });
+
+    setTablebaseStatus("Tablebase prête : " + formatTablebaseRows(tablebase.size) + " positions.");
+    updateEnginePanel(formatTablebaseRows(tablebase.size), "prête", "—");
+    startButton.disabled = false;
+  }
+
+  tablebaseFileInput.addEventListener("change", function () {
+    const file = tablebaseFileInput.files && tablebaseFileInput.files[0];
+    if (!file) return;
+
+    installTablebase(function (progress) {
+      return core.loadTablebaseFile(file, progress);
+    }).catch(function (error) {
+      setTablebaseStatus("Erreur : " + error.message);
+      updateEnginePanel("erreur", "chargement impossible", "—");
+    });
+  });
+
+  if (TABLEBASE_URL) {
+    installTablebase(function (progress) {
+      return core.fetchTablebase(TABLEBASE_URL, progress);
+    }).catch(function (error) {
+      setTablebaseStatus("Erreur : " + error.message);
+      updateEnginePanel("erreur", "chargement impossible", "—");
+    });
+  }
+
+  function opposite(side) {
+    return side === "w" ? "b" : "w";
+  }
+
+  function canHumanInteractWithPiece(index) {
+    if (!state || state.winner || engineThinking) return false;
+    if (state.turn !== humanSide) return false;
+    const piece = state.board[index];
+    return (humanSide === "w" && piece === "P") || (humanSide === "b" && piece === "p");
+  }
+
+  function moveNotation(s, move) {
+    const piece = s.board[move.from];
+    const side = piece === "P" ? "w" : "b";
+    const fromFile = "abcdefgh"[move.from % 8];
+    const destination = core.squareName(move.to);
+    let text = move.capture ? fromFile + "x" + destination : destination;
+
+    if (move.enPassant) text += " e.p.";
+    if (move.winning) text += "#";
+
+    return {
+      side: side,
+      text: text
+    };
+  }
+
+  function addMoveToHistory(s, move) {
+    moveHistory.push(moveNotation(s, move));
+    renderNotation();
+  }
+
+  function appendResultIfNeeded() {
+    if (!state || !state.winner) return;
+
+    const result = state.winner === "w" ? "1-0" : "0-1";
+    const last = moveHistory.length > 0 ? moveHistory[moveHistory.length - 1] : null;
+
+    if (!last || last.result !== result) {
+      moveHistory.push({ result: result });
+    }
+
+    renderNotation();
+  }
+
+  function renderNotation() {
+    if (moveHistory.length === 0) {
+      notationContentDiv.textContent = "La partie apparaîtra ici.";
+      return;
+    }
+
+    let output = "";
+    let moveNumber = 1;
+
+    for (let i = 0; i < moveHistory.length; i++) {
+      const item = moveHistory[i];
+
+      if (item.result) {
+        output += " " + item.result;
+        continue;
+      }
+
+      if (item.side === "w") {
+        output += moveNumber + ". " + item.text;
+      } else {
+        output += i === 0 || moveHistory[i - 1].side !== "w" ? moveNumber + "... " : " ";
+        output += item.text + " ";
+        moveNumber++;
+      }
+    }
+
+    notationContentDiv.textContent = output.trim();
+    notationContentDiv.scrollTop = notationContentDiv.scrollHeight;
+  }
+
+  function renderBoard() {
+    boardDiv.innerHTML = "";
+
+    for (let i = 0; i < 64; i++) {
+      const square = document.createElement("div");
+      const row = Math.floor(i / 8);
+      const file = i % 8;
+
+      square.className = "square " + ((row + file) % 2 === 0 ? "light" : "dark");
+      square.dataset.index = String(i);
+
+      if (file >= BOARD_WIDTH) square.classList.add("inactive-file");
+      if (selectedSquare === i) square.classList.add("selected");
+      if (legalMovesForSelected.some(function (m) { return m.to === i; })) {
+        square.classList.add("legal-target");
+      }
+      if (lastMove && (lastMove.from === i || lastMove.to === i)) {
+        square.classList.add("last-move");
+      }
+
+      const piece = state.board[i];
+      if (piece) square.appendChild(createPawnElement(piece, i));
+
+      boardDiv.appendChild(square);
+    }
+  }
+
+  function createPawnElement(piece, index) {
+    const pawn = document.createElement("div");
+    pawn.className = "pawn " + (piece === "P" ? "white-pawn" : "black-pawn");
+    pawn.dataset.index = String(index);
+
+    const symbol = document.createElement("div");
+    symbol.className = "pawn-symbol";
+    symbol.textContent = piece === "P" ? "♙" : "♟";
+    pawn.appendChild(symbol);
+
+    return pawn;
+  }
+
+  function selectSquare(index) {
+    const piece = state.board[index];
+
+    if (piece && ((humanSide === "w" && piece === "P") || (humanSide === "b" && piece === "p"))) {
+      selectedSquare = index;
+      legalMovesForSelected = core.generateLegalMoves(state, BOARD_WIDTH).filter(function (m) {
+        return m.from === index;
+      });
+    } else {
+      selectedSquare = null;
+      legalMovesForSelected = [];
+    }
+
+    renderBoard();
+  }
+
+  function squareIndexFromPoint(clientX, clientY) {
+    const element = document.elementFromPoint(clientX, clientY);
+    if (!element) return null;
+
+    const square = element.closest(".square");
+    if (!square || !boardDiv.contains(square)) return null;
+
+    return Number(square.dataset.index);
+  }
+
+  function clearDropTargets() {
+    boardDiv.querySelectorAll(".drop-target").forEach(function (el) {
+      el.classList.remove("drop-target");
+    });
+  }
+
+  function highlightDropTarget(index) {
+    clearDropTargets();
+    if (index === null) return;
+
+    const move = legalMovesForSelected.find(function (m) {
+      return m.to === index;
+    });
+    if (!move) return;
+
+    const square = boardDiv.querySelector(".square[data-index='" + index + "']");
+    if (square) square.classList.add("drop-target");
+  }
+
+  function makeFloatingPawn(piece, x, y) {
+    const floating = createPawnElement(piece, -1);
+    floating.id = "floating-pawn";
+    floating.style.left = x + "px";
+    floating.style.top = y + "px";
+    document.body.appendChild(floating);
+    return floating;
+  }
+
+  function moveFloatingPawn(x, y) {
+    if (!pointerDrag.floating) return;
+    pointerDrag.floating.style.left = x + "px";
+    pointerDrag.floating.style.top = y + "px";
+  }
+
+  function removeFloatingPawn() {
+    if (pointerDrag.floating && pointerDrag.floating.parentNode) {
+      pointerDrag.floating.parentNode.removeChild(pointerDrag.floating);
+    }
+    pointerDrag.floating = null;
+  }
+
+  function resetPointerDrag() {
+    if (pointerDrag.hiddenPieceElement) {
+      pointerDrag.hiddenPieceElement.classList.remove("hidden-during-drag");
+    }
+
+    removeFloatingPawn();
+    clearDropTargets();
+
+    pointerDrag.active = false;
+    pointerDrag.moved = false;
+    pointerDrag.from = null;
+    pointerDrag.piece = null;
+    pointerDrag.pointerId = null;
+    pointerDrag.startX = 0;
+    pointerDrag.startY = 0;
+    pointerDrag.hiddenPieceElement = null;
+  }
+
+  function handleTapOrClick(squareIndex) {
+    if (!state || state.winner || engineThinking || state.turn !== humanSide) return;
+
+    if (selectedSquare !== null) {
+      const move = legalMovesForSelected.find(function (m) {
+        return m.to === squareIndex;
+      });
+
+      if (move) {
+        playHumanMove(move);
+        return;
+      }
+    }
+
+    if (canHumanInteractWithPiece(squareIndex)) {
+      selectSquare(squareIndex);
+    } else {
+      selectedSquare = null;
+      legalMovesForSelected = [];
+      renderBoard();
+    }
+  }
+
+  function onPointerDown(event) {
+    if (!state || state.winner || engineThinking || state.turn !== humanSide) return;
+
+    const squareIndex = squareIndexFromPoint(event.clientX, event.clientY);
+    if (squareIndex === null) return;
+
+    if (!canHumanInteractWithPiece(squareIndex)) {
+      handleTapOrClick(squareIndex);
+      return;
+    }
+
+    event.preventDefault();
+
+    const piece = state.board[squareIndex];
+    selectedSquare = squareIndex;
+    legalMovesForSelected = core.generateLegalMoves(state, BOARD_WIDTH).filter(function (m) {
+      return m.from === squareIndex;
+    });
+    renderBoard();
+
+    const pawnElement = boardDiv.querySelector(".pawn[data-index='" + squareIndex + "']");
+
+    pointerDrag.active = true;
+    pointerDrag.moved = false;
+    pointerDrag.from = squareIndex;
+    pointerDrag.piece = piece;
+    pointerDrag.pointerId = event.pointerId;
+    pointerDrag.startX = event.clientX;
+    pointerDrag.startY = event.clientY;
+    pointerDrag.hiddenPieceElement = pawnElement;
+
+    if (pointerDrag.hiddenPieceElement) {
+      pointerDrag.hiddenPieceElement.classList.add("hidden-during-drag");
+    }
+
+    pointerDrag.floating = makeFloatingPawn(piece, event.clientX, event.clientY);
+
+    try {
+      boardDiv.setPointerCapture(event.pointerId);
+    } catch (e) {}
+  }
+
+  function onPointerMove(event) {
+    if (!pointerDrag.active || event.pointerId !== pointerDrag.pointerId) return;
+
+    event.preventDefault();
+
+    const dx = event.clientX - pointerDrag.startX;
+    const dy = event.clientY - pointerDrag.startY;
+    if (Math.sqrt(dx * dx + dy * dy) > 6) pointerDrag.moved = true;
+
+    moveFloatingPawn(event.clientX, event.clientY);
+    highlightDropTarget(squareIndexFromPoint(event.clientX, event.clientY));
+  }
+
+  function onPointerUp(event) {
+    if (!pointerDrag.active || event.pointerId !== pointerDrag.pointerId) return;
+
+    event.preventDefault();
+
+    const targetIndex = squareIndexFromPoint(event.clientX, event.clientY);
+    const from = pointerDrag.from;
+    const wasMoved = pointerDrag.moved;
+
+    try {
+      boardDiv.releasePointerCapture(event.pointerId);
+    } catch (e) {}
+
+    if (!wasMoved) {
+      resetPointerDrag();
+      handleTapOrClick(from);
+      return;
+    }
+
+    const move = legalMovesForSelected.find(function (m) {
+      return m.from === from && m.to === targetIndex;
+    });
+
+    resetPointerDrag();
+
+    if (move) {
+      playHumanMove(move);
+    } else {
+      selectedSquare = null;
+      legalMovesForSelected = [];
+      renderBoard();
+    }
+  }
+
+  function tablebaseLookup(s) {
+    const key = core.stateKey(s, BOARD_WIDTH);
+    const entry = tablebase ? tablebase.get(key) : null;
+    return {
+      key: key,
+      entry: entry
+    };
+  }
+
+  function describeOutcome(entry) {
+    if (!entry) return "miss";
+    return entry.outcome === 1 ? "gain côté au trait" : "perte côté au trait";
+  }
+
+  function playHumanMove(move) {
+    addMoveToHistory(state, move);
+    state = core.makeMove(state, move, BOARD_WIDTH);
+    lastMove = { from: move.from, to: move.to };
+    selectedSquare = null;
+    legalMovesForSelected = [];
+
+    renderBoard();
+
+    if (state.winner) {
+      finishGame();
+      return;
+    }
+
+    const lookup = tablebaseLookup(state);
+    updateEnginePanel(formatTablebaseRows(tablebase.size), describeOutcome(lookup.entry), lookup.entry ? String(lookup.entry.dtm) : "—");
+    updateStatus("L’ordinateur joue depuis la tablebase...");
+    setTimeout(requestEngineMove, 80);
+  }
+
+  function finishGame() {
+    appendResultIfNeeded();
+    renderBoard();
+    updateEnginePanel(formatTablebaseRows(tablebase ? tablebase.size : 0), "terminal", "0");
+
+    if (state.winner === humanSide) {
+      updateStatus("Tu as gagné.");
+    } else {
+      updateStatus("L’ordinateur a gagné.");
+    }
+  }
+
+  function findLegalDecodedMove(decoded) {
+    const legal = core.generateLegalMoves(state, BOARD_WIDTH);
+    return legal.find(function (move) {
+      return move.from === decoded.from && move.to === decoded.to;
+    });
+  }
+
+  function chooseFallbackMove() {
+    const legal = core.generateLegalMoves(state, BOARD_WIDTH);
+    return legal.length > 0 ? legal[0] : null;
+  }
+
+  function requestEngineMove() {
+    if (!state || state.winner || state.turn !== engineSide) return;
+
+    engineThinking = true;
+
+    const lookup = tablebaseLookup(state);
+    let move = null;
+
+    if (lookup.entry) {
+      move = findLegalDecodedMove(core.decodeMove(lookup.entry.bestMove));
+      updateEnginePanel(
+        formatTablebaseRows(tablebase.size),
+        describeOutcome(lookup.entry),
+        String(lookup.entry.dtm)
+      );
+    }
+
+    if (!move) {
+      move = chooseFallbackMove();
+      updateEnginePanel(formatTablebaseRows(tablebase.size), "miss", "—");
+    }
+
+    engineThinking = false;
+
+    if (!move) {
+      state.winner = humanSide;
+      state.winReason = "blocked";
+      finishGame();
+      return;
+    }
+
+    addMoveToHistory(state, move);
+    state = core.makeMove(state, move, BOARD_WIDTH);
+    lastMove = { from: move.from, to: move.to };
+    renderBoard();
+
+    if (state.winner) {
+      finishGame();
+    } else {
+      updateStatus("À toi de jouer.");
+    }
+  }
+
+  function startGame() {
+    if (!tablebase) {
+      updateStatus("Charge la tablebase avant de commencer.");
+      return;
+    }
+
+    const sideInput = document.querySelector("input[name='side']:checked");
+    humanSide = sideInput.value;
+    engineSide = opposite(humanSide);
+
+    state = core.initialState(BOARD_WIDTH);
+    selectedSquare = null;
+    legalMovesForSelected = [];
+    engineThinking = false;
+    lastMove = null;
+    moveHistory = [];
+
+    resetPointerDrag();
+    modal.style.display = "none";
+
+    renderBoard();
+    renderNotation();
+
+    const lookup = tablebaseLookup(state);
+    updateEnginePanel(formatTablebaseRows(tablebase.size), describeOutcome(lookup.entry), lookup.entry ? String(lookup.entry.dtm) : "—");
+
+    if (humanSide === "w") {
+      updateStatus("À toi de jouer.");
+    } else {
+      updateStatus("L’ordinateur joue depuis la tablebase...");
+      setTimeout(requestEngineMove, 100);
+    }
+  }
+
+  startButton.addEventListener("click", startGame);
+
+  boardDiv.addEventListener("pointerdown", onPointerDown);
+  boardDiv.addEventListener("pointermove", onPointerMove);
+  boardDiv.addEventListener("pointerup", onPointerUp);
+  boardDiv.addEventListener("pointercancel", resetPointerDrag);
+
+  document.addEventListener("pointermove", onPointerMove, { passive: false });
+  document.addEventListener("pointerup", onPointerUp, { passive: false });
+  document.addEventListener("pointercancel", resetPointerDrag, { passive: false });
+
+  state = core.initialState(BOARD_WIDTH);
+  renderBoard();
+  renderNotation();
+  updateEnginePanel("—", "tablebase non chargée", "—");
+})();
+</script>

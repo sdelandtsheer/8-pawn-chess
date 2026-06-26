@@ -118,3 +118,24 @@ py export_tablebase.py --output-dir dist --progress 1000 --max-entered 3000 --lo
 ```
 
 Bounded runs exit nonzero and intentionally do not write tablebase artifacts.
+
+## Browser Width 4
+
+Generate the paste-ready Wix HTML:
+
+```powershell
+py browser/build_wix_html.py
+```
+
+Verify browser keying and width 4 tablebase lookup:
+
+```powershell
+node tests/browser_core_smoke.js
+node browser/verify_width4_tablebase.js
+```
+
+Paste-ready file:
+
+```text
+browser/wix_width4_tablebase.html
+```
