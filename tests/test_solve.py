@@ -159,9 +159,10 @@ class FastSolverParityTests(unittest.TestCase):
     def test_width_two_initial_position_solves(self) -> None:
         solver = Solver(board_width=2)
         result = solver.solve(initial_state(2))
-        self.assertIn(result.outcome, (WIN, LOSS))
-        self.assertGreater(result.dtm, 0)
-        self.assertIn(best_move_to_text(result), {"a2a3", "a2a4", "b2b3", "b2b4"})
+        self.assertEqual(result.outcome, LOSS)
+        self.assertEqual(result.dtm, 8)
+        self.assertEqual(best_move_to_text(result), "a2a3")
+        self.assertEqual(solver.stats.states_solved, 515)
 
     def test_trace_logging_includes_tree_state_and_considered_moves(self) -> None:
         stream = StringIO()
