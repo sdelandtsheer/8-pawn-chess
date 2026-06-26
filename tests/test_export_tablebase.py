@@ -54,6 +54,7 @@ class ExportTablebaseTests(unittest.TestCase):
             write_metadata(metadata, path)
             loaded = json.loads(path.read_text(encoding="utf-8"))
             self.assertTrue(loaded["complete"])
+            self.assertEqual(loaded["board_width"], 8)
             self.assertEqual(loaded["states"], len(solver.memo))
             self.assertIsNone(loaded["gzip_path"])
 

@@ -1,4 +1,5 @@
 import unittest
+from io import StringIO
 
 from rules import (
     algebraic_to_square,
@@ -118,6 +119,14 @@ class FastSolverParityTests(unittest.TestCase):
                     [encode_move(move) for move in legal_moves(state)],
                 )
 
+    def test_fast_move_generation_matches_rules_engine_width_two(self) -> None:
+        state = initial_state(2)
+        white, black, turn, ep_square = _unpack_key(state_key(state, board_width=2))
+        self.assertEqual(
+            _legal_move_codes(white, black, turn, ep_square, board_width=2),
+            [encode_move(move) for move in legal_moves(state, board_width=2)],
+        )
+
     def test_fast_make_move_matches_rules_engine_keys(self) -> None:
         samples = [initial_state()]
         samples.extend(
@@ -133,6 +142,35 @@ class FastSolverParityTests(unittest.TestCase):
                         _make_move_key(white, black, turn, encode_move(move)),
                         state_key(make_move(state, move, validate=False)),
                     )
+
+    def test_fast_make_move_matches_rules_engine_keys_width_two(self) -> None:
+        state = initial_state(2)
+        white, black, turn, _ = _unpack_key(state_key(state, board_width=2))
+        for move in legal_moves(state, board_width=2):
+            with self.subTest(move=move):
+                self.assertEqual(
+                    _make_move_key(white, black, turn, encode_move(move), board_width=2),
+                    state_key(
+                        make_move(state, move, validate=False, board_width=2),
+                        board_width=2,
+                    ),
+                )
+
+    def test_width_two_initial_position_solves(self) -> None:
+        solver = Solver(board_width=2)
+        result = solver.solve(initial_state(2))
+        self.assertIn(result.outcome, (WIN, LOSS))
+        self.assertGreater(result.dtm, 0)
+        self.assertIn(best_move_to_text(result), {"a2a3", "a2a4", "b2b3", "b2b4"})
+
+    def test_trace_logging_includes_tree_state_and_considered_moves(self) -> None:
+        stream = StringIO()
+        solver = Solver(board_width=2, trace_depth=0, log_moves=True, progress_stream=stream)
+        solver.solve(initial_state(2))
+        output = stream.getvalue()
+        self.assertIn("tree depth=0 path=(root)", output)
+        self.assertIn("legal_moves=a2a3,a2a4,b2b3,b2b4", output)
+        self.assertIn("considering=", output)
 
     def test_mirror_key_round_trip(self) -> None:
         for state in random_playout(initial_state(), seed=88, max_plies=30).states:

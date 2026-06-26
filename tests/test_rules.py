@@ -33,6 +33,7 @@ from rules import (
     state_from_key,
     state_key,
     terminal_winner,
+    validate_board_width,
 )
 
 
@@ -105,6 +106,18 @@ class StateTests(unittest.TestCase):
         self.assertEqual(square_to_algebraic(iter_squares(state.white)[0]), "a2")
         self.assertEqual(square_to_algebraic(iter_squares(state.black)[-1]), "h7")
 
+    def test_initial_state_supports_even_board_widths(self) -> None:
+        for board_width in (2, 4, 6, 8):
+            with self.subTest(board_width=board_width):
+                state = initial_state(board_width)
+                self.assertEqual(len(iter_squares(state.white)), board_width)
+                self.assertEqual(len(iter_squares(state.black)), board_width)
+
+    def test_board_width_rejects_invalid_values(self) -> None:
+        for board_width in (0, 1, 3, 5, 7, 9):
+            with self.subTest(board_width=board_width), self.assertRaises(ValueError):
+                validate_board_width(board_width)
+
     def test_state_rejects_overlapping_pawns(self) -> None:
         with self.assertRaises(ValueError):
             State(bit(algebraic_to_square("a2")), bit(algebraic_to_square("a2")), WHITE)
@@ -146,6 +159,10 @@ class MoveGenerationTests(unittest.TestCase):
         self.assertIn("a2a3", [move_to_coord(move) for move in moves])
         self.assertIn("h2h4", [move_to_coord(move) for move in moves])
 
+    def test_width_two_initial_position_has_four_legal_moves(self) -> None:
+        moves = legal_moves(initial_state(2), board_width=2)
+        self.assertEqual([move_to_coord(move) for move in moves], ["a2a3", "a2a4", "b2b3", "b2b4"])
+
     def test_after_e4_black_has_16_legal_moves(self) -> None:
         state = play_coord_moves(initial_state(), ["e2e4"])
         self.assertEqual(len(legal_moves(state)), 16)
@@ -178,6 +195,11 @@ class MoveGenerationTests(unittest.TestCase):
         h_file_state = state_with(["h2"], ["a3"], WHITE)
         self.assertNotIn("a2h3", [move_to_coord(move) for move in legal_moves(a_file_state)])
         self.assertNotIn("h2a3", [move_to_coord(move) for move in legal_moves(h_file_state)])
+
+    def test_width_two_right_edge_captures_do_not_enter_c_file(self) -> None:
+        state = state_with(["b2"], ["c3"], WHITE)
+        coords = [move_to_coord(move) for move in legal_moves(state, board_width=2)]
+        self.assertNotIn("b2c3", coords)
 
     def test_edge_file_captures_to_adjacent_files_are_legal(self) -> None:
         state = state_with(["a2", "h2"], ["b3", "g3"], WHITE)
@@ -239,6 +261,10 @@ class PerftTests(unittest.TestCase):
     def test_perft_initial_depths(self) -> None:
         self.assertEqual(perft(initial_state(), 1), 16)
         self.assertEqual(perft(initial_state(), 2), 256)
+
+    def test_width_two_perft_initial_depths(self) -> None:
+        self.assertEqual(perft(initial_state(2), 1, board_width=2), 4)
+        self.assertEqual(perft(initial_state(2), 2, board_width=2), 16)
 
     def test_perft_rejects_negative_depth(self) -> None:
         with self.assertRaises(ValueError):

@@ -24,7 +24,9 @@ from rules import (
     initial_state,
     move_to_coord,
     normalize_state,
+    square_to_algebraic,
     state_key,
+    validate_board_width,
 )
 
 WIN = 1
@@ -71,31 +73,42 @@ class Solver:
         *,
         progress_interval: int = 0,
         max_entered_states: int | None = None,
+        board_width: int = 8,
         use_symmetry: bool = False,
+        trace_depth: int = -1,
+        log_moves: bool = False,
         progress_stream=sys.stderr,
     ) -> None:
+        validate_board_width(board_width)
         if progress_interval < 0:
             raise ValueError("progress_interval must be non-negative")
         if max_entered_states is not None and max_entered_states < 1:
             raise ValueError("max_entered_states must be positive when set")
+        if trace_depth < -1:
+            raise ValueError("trace_depth must be -1 or greater")
         self.memo: dict[int, int] = {}
         self.stats = SolverStats()
         self.progress_interval = progress_interval
         self.max_entered_states = max_entered_states
+        self.board_width = board_width
         self.use_symmetry = use_symmetry
+        self.trace_depth = trace_depth
+        self.log_moves = log_moves
         self.progress_stream = progress_stream
         self._started_at = time.perf_counter()
         self._last_progress_entered = 0
+        self._path: list[int] = []
 
     def solve(self, state: State) -> Result:
-        return _unpack_result(self._solve_key(state_key(normalize_state(state)), depth=0))
+        normalized = normalize_state(state, self.board_width)
+        return _unpack_result(self._solve_key(state_key(normalized, self.board_width), depth=0))
 
     def _solve_key(self, key: int, *, depth: int) -> int:
         if not self.use_symmetry:
             return self._solve_canonical_key(key, depth=depth)
-        canonical_key, mirrored = _canonicalize_key(key)
+        canonical_key, mirrored = _canonicalize_key(key, self.board_width)
         result = self._solve_canonical_key(canonical_key, depth=depth)
-        return _mirror_result(result) if mirrored else result
+        return _mirror_result(result, self.board_width) if mirrored else result
 
     def _solve_canonical_key(self, key: int, *, depth: int) -> int:
         cached = self.memo.get(key)
@@ -115,10 +128,12 @@ class Solver:
         self._log_progress()
 
         white, black, turn, ep_square = _unpack_key(key)
+        self._trace_state(key, depth, white, black, turn, ep_square)
         if _is_terminal_parts(white, black):
             return self._store(key, _pack_result(LOSS, 0, NO_MOVE))
 
-        moves = _legal_move_codes(white, black, turn, ep_square)
+        moves = _legal_move_codes(white, black, turn, ep_square, self.board_width)
+        self._trace_moves(depth, moves)
         if not moves:
             return self._store(key, _pack_result(LOSS, 0, NO_MOVE))
 
@@ -132,10 +147,13 @@ class Solver:
         best_loss_dtm = -1
 
         for move_code in moves:
-            child_key = _make_move_key(white, black, turn, move_code)
+            self._trace_considered_move(depth, move_code)
+            child_key = _make_move_key(white, black, turn, move_code, self.board_width)
+            self._path.append(move_code)
             child_outcome, child_dtm, _ = _unpack_result_parts(
                 self._solve_key(child_key, depth=depth + 1)
             )
+            self._path.pop()
 
             current_dtm = child_dtm + 1
             if child_outcome == LOSS:
@@ -160,6 +178,48 @@ class Solver:
         return self._store(
             key,
             _pack_result(LOSS, best_loss_dtm, best_losing_move),
+        )
+
+    def _trace_state(
+        self,
+        key: int,
+        depth: int,
+        white: int,
+        black: int,
+        turn: int,
+        ep_square: int,
+    ) -> None:
+        if self.trace_depth < 0 or depth > self.trace_depth:
+            return
+        print(
+            f"tree depth={depth} path={_path_to_text(self._path)} "
+            f"turn={'white' if turn == WHITE else 'black'} "
+            f"key={key:x} white={_bitboard_to_text(white)} black={_bitboard_to_text(black)} "
+            f"ep={'none' if ep_square == NO_EP else square_to_algebraic(ep_square)}",
+            file=self.progress_stream,
+            flush=True,
+        )
+
+    def _trace_moves(self, depth: int, moves: list[int]) -> None:
+        if self.trace_depth < 0 or depth > self.trace_depth:
+            return
+        move_text = ",".join(_move_to_text(move) for move in moves) or "none"
+        print(
+            f"tree depth={depth} legal_moves={move_text}",
+            file=self.progress_stream,
+            flush=True,
+        )
+
+    def _trace_considered_move(self, depth: int, move_code: int) -> None:
+        if not self.log_moves:
+            return
+        if self.trace_depth >= 0 and depth > self.trace_depth:
+            return
+        print(
+            f"tree depth={depth} considering={_move_to_text(move_code)} "
+            f"path={_path_to_text([*self._path, move_code])}",
+            file=self.progress_stream,
+            flush=True,
         )
 
     def _store(self, key: int, result: int) -> int:
@@ -212,58 +272,93 @@ def _unpack_result(packed: int) -> Result:
     return Result(*_unpack_result_parts(packed))
 
 
-def _mirror_square(square: int) -> int:
-    return square ^ 7
+def _move_to_text(move_code: int) -> str:
+    if move_code == NO_MOVE:
+        return "none"
+    return f"{square_to_algebraic(_move_from(move_code))}{square_to_algebraic(_move_to(move_code))}"
 
 
-def _mirror_bitboard(bitboard: int) -> int:
-    return (
-        MIRRORED_BYTES[bitboard & 0xFF]
-        | (MIRRORED_BYTES[(bitboard >> 8) & 0xFF] << 8)
-        | (MIRRORED_BYTES[(bitboard >> 16) & 0xFF] << 16)
-        | (MIRRORED_BYTES[(bitboard >> 24) & 0xFF] << 24)
-        | (MIRRORED_BYTES[(bitboard >> 32) & 0xFF] << 32)
-        | (MIRRORED_BYTES[(bitboard >> 40) & 0xFF] << 40)
-        | (MIRRORED_BYTES[(bitboard >> 48) & 0xFF] << 48)
-        | (MIRRORED_BYTES[(bitboard >> 56) & 0xFF] << 56)
-    )
+def _path_to_text(path: list[int]) -> str:
+    return "(root)" if not path else " ".join(_move_to_text(move) for move in path)
 
 
-def _mirror_move(move_code: int) -> int:
+def _bitboard_to_text(bitboard: int) -> str:
+    squares: list[str] = []
+    remaining = bitboard
+    while remaining:
+        square_bit = remaining & -remaining
+        square = square_bit.bit_length() - 1
+        squares.append(square_to_algebraic(square))
+        remaining ^= square_bit
+    return ",".join(squares) or "-"
+
+
+def _mirror_square(square: int, board_width: int = 8) -> int:
+    validate_board_width(board_width)
+    rank = square & ~7
+    file_ = square & 7
+    return rank + board_width - 1 - file_
+
+
+def _mirror_bitboard(bitboard: int, board_width: int = 8) -> int:
+    validate_board_width(board_width)
+    if board_width == 8:
+        return (
+            MIRRORED_BYTES[bitboard & 0xFF]
+            | (MIRRORED_BYTES[(bitboard >> 8) & 0xFF] << 8)
+            | (MIRRORED_BYTES[(bitboard >> 16) & 0xFF] << 16)
+            | (MIRRORED_BYTES[(bitboard >> 24) & 0xFF] << 24)
+            | (MIRRORED_BYTES[(bitboard >> 32) & 0xFF] << 32)
+            | (MIRRORED_BYTES[(bitboard >> 40) & 0xFF] << 40)
+            | (MIRRORED_BYTES[(bitboard >> 48) & 0xFF] << 48)
+            | (MIRRORED_BYTES[(bitboard >> 56) & 0xFF] << 56)
+        )
+    mirrored = 0
+    remaining = bitboard
+    while remaining:
+        square_bit = remaining & -remaining
+        square = square_bit.bit_length() - 1
+        mirrored |= 1 << _mirror_square(square, board_width)
+        remaining ^= square_bit
+    return mirrored
+
+
+def _mirror_move(move_code: int, board_width: int = 8) -> int:
     if move_code == NO_MOVE:
         return NO_MOVE
     return _encode_move_parts(
-        _mirror_square(_move_from(move_code)),
-        _mirror_square(_move_to(move_code)),
+        _mirror_square(_move_from(move_code), board_width),
+        _mirror_square(_move_to(move_code), board_width),
         _move_flags(move_code),
     )
 
 
-def _mirror_result(packed: int) -> int:
+def _mirror_result(packed: int, board_width: int = 8) -> int:
     outcome, dtm, best_move = _unpack_result_parts(packed)
-    return _pack_result(outcome, dtm, _mirror_move(best_move))
+    return _pack_result(outcome, dtm, _mirror_move(best_move, board_width))
 
 
-def _mirror_key(key: int) -> int:
+def _mirror_key(key: int, board_width: int = 8) -> int:
     white, black, turn, ep_square = _unpack_key(key)
-    mirrored_ep = NO_EP if ep_square == NO_EP else _mirror_square(ep_square)
+    mirrored_ep = NO_EP if ep_square == NO_EP else _mirror_square(ep_square, board_width)
     return _pack_key(
-        _mirror_bitboard(white),
-        _mirror_bitboard(black),
+        _mirror_bitboard(white, board_width),
+        _mirror_bitboard(black, board_width),
         turn,
         mirrored_ep,
+        board_width,
     )
 
 
-def _canonicalize_key(key: int) -> tuple[int, bool]:
-    mirrored = _mirror_key(key)
+def _canonicalize_key(key: int, board_width: int = 8) -> tuple[int, bool]:
+    mirrored = _mirror_key(key, board_width)
     if mirrored < key:
         return mirrored, True
     return key, False
 
 
-def _pack_key(white: int, black: int, turn: int, ep_square: int) -> int:
-    ep_square = _normalize_ep_square(white, black, turn, ep_square)
+def _pack_key(white: int, black: int, turn: int, ep_square: int, board_width: int = 8) -> int:
+    ep_square = _normalize_ep_square(white, black, turn, ep_square, board_width)
     ep_code = 0 if ep_square == NO_EP else ep_square + 1
     return white | (black << 64) | (turn << 128) | (ep_code << 129)
 
@@ -277,16 +372,30 @@ def _unpack_key(key: int) -> tuple[int, int, int, int]:
     return white, black, turn, ep_square
 
 
-def _normalize_ep_square(white: int, black: int, turn: int, ep_square: int) -> int:
+def _normalize_ep_square(
+    white: int,
+    black: int,
+    turn: int,
+    ep_square: int,
+    board_width: int = 8,
+) -> int:
     if ep_square == NO_EP:
         return NO_EP
-    if not _ep_capture_exists(white, black, turn, ep_square):
+    if not _ep_capture_exists(white, black, turn, ep_square, board_width):
         return NO_EP
     return ep_square
 
 
-def _ep_capture_exists(white: int, black: int, turn: int, ep_square: int) -> bool:
+def _ep_capture_exists(
+    white: int,
+    black: int,
+    turn: int,
+    ep_square: int,
+    board_width: int = 8,
+) -> bool:
     ep_file = ep_square & 7
+    if ep_file >= board_width:
+        return False
     if turn == WHITE:
         captured_square = ep_square - 8
         if captured_square < 0 or not (black & (1 << captured_square)):
@@ -334,7 +443,13 @@ def _move_sort_key(move_code: int) -> tuple[int, int, int]:
     return (_move_from(move_code), _move_to(move_code), _move_flags(move_code))
 
 
-def _legal_move_codes(white: int, black: int, turn: int, ep_square: int) -> list[int]:
+def _legal_move_codes(
+    white: int,
+    black: int,
+    turn: int,
+    ep_square: int,
+    board_width: int = 8,
+) -> list[int]:
     if _is_terminal_parts(white, black):
         return []
 
@@ -370,7 +485,7 @@ def _legal_move_codes(white: int, black: int, turn: int, ep_square: int) -> list
                 flags = FLAG_WINNING if one_step >= 56 else 0
                 moves.append(_encode_move_parts(from_square, one_step, flags))
 
-            if file_ < 7:
+            if file_ < board_width - 1:
                 target = from_square + 9
                 target_bit = 1 << target
                 if enemies & target_bit:
@@ -424,7 +539,7 @@ def _legal_move_codes(white: int, black: int, turn: int, ep_square: int) -> list
                 flags = FLAG_WINNING if one_step <= 7 else 0
                 moves.append(_encode_move_parts(from_square, one_step, flags))
 
-            if file_ < 7:
+            if file_ < board_width - 1:
                 target = from_square - 7
                 target_bit = 1 << target
                 if enemies & target_bit:
@@ -442,7 +557,13 @@ def _legal_move_codes(white: int, black: int, turn: int, ep_square: int) -> list
     return moves
 
 
-def _make_move_key(white: int, black: int, turn: int, move_code: int) -> int:
+def _make_move_key(
+    white: int,
+    black: int,
+    turn: int,
+    move_code: int,
+    board_width: int = 8,
+) -> int:
     from_square = _move_from(move_code)
     to_square = _move_to(move_code)
     flags = _move_flags(move_code)
@@ -458,7 +579,7 @@ def _make_move_key(white: int, black: int, turn: int, move_code: int) -> int:
             black &= ~to_bit
         if flags & FLAG_DOUBLE:
             ep_square = from_square + 8
-        return _pack_key(white, black, BLACK, ep_square)
+        return _pack_key(white, black, BLACK, ep_square, board_width)
 
     black = (black & ~from_bit) | to_bit
     if flags & FLAG_EN_PASSANT:
@@ -467,7 +588,7 @@ def _make_move_key(white: int, black: int, turn: int, move_code: int) -> int:
         white &= ~to_bit
     if flags & FLAG_DOUBLE:
         ep_square = from_square - 8
-    return _pack_key(white, black, WHITE, ep_square)
+    return _pack_key(white, black, WHITE, ep_square, board_width)
 
 
 def best_move_to_text(result: Result) -> str:
@@ -479,21 +600,33 @@ def best_move_to_text(result: Result) -> str:
 def solve_initial(
     progress_interval: int,
     max_entered_states: int | None = None,
+    board_width: int = 8,
     use_symmetry: bool = False,
+    trace_depth: int = -1,
+    log_moves: bool = False,
 ) -> tuple[Result, Solver, float]:
     solver = Solver(
         progress_interval=progress_interval,
         max_entered_states=max_entered_states,
+        board_width=board_width,
         use_symmetry=use_symmetry,
+        trace_depth=trace_depth,
+        log_moves=log_moves,
     )
     started = time.perf_counter()
-    result = solver.solve(initial_state())
+    result = solver.solve(initial_state(board_width))
     elapsed = time.perf_counter() - started
     return result, solver, elapsed
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Solve the 8-pawn chess initial position.")
+    parser.add_argument(
+        "--board-width",
+        type=int,
+        default=8,
+        help="active board width: 2, 4, 6, or 8 files starting at a-file",
+    )
     parser.add_argument(
         "--progress",
         type=int,
@@ -511,13 +644,31 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="canonicalize horizontal mirror positions internally",
     )
+    parser.add_argument(
+        "--trace-depth",
+        type=int,
+        default=-1,
+        help="print tree state and legal moves down to this depth; -1 disables tracing",
+    )
+    parser.add_argument(
+        "--log-moves",
+        action="store_true",
+        help="print each move considered within trace depth",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
-        result, solver, elapsed = solve_initial(args.progress, args.max_entered, args.symmetry)
+        result, solver, elapsed = solve_initial(
+            args.progress,
+            args.max_entered,
+            args.board_width,
+            args.symmetry,
+            args.trace_depth,
+            args.log_moves,
+        )
     except SolveLimitReachedError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -526,6 +677,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cache hits: {solver.stats.cache_hits}")
     print(f"max recursion depth: {solver.stats.max_depth}")
     print(f"time used: {elapsed:.3f}s")
+    print(f"board width: {args.board_width}")
     print(f"initial outcome: {'WIN' if result.outcome == WIN else 'LOSS'}")
     print(f"initial best move: {best_move_to_text(result)}")
     print(f"initial DTM: {result.dtm}")

@@ -11,13 +11,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TextIO
 
-from rules import initial_state, state_key
+from rules import initial_state, state_key, validate_board_width
 from solve import LOSS, WIN, SolveLimitReachedError, Solver, _unpack_result, best_move_to_text
 
 
 @dataclass(frozen=True, slots=True)
 class ExportMetadata:
     complete: bool
+    board_width: int
     states: int
     elapsed_seconds: float
     outcome: int | None
@@ -48,17 +49,26 @@ def solve_tablebase(
     *,
     progress_interval: int,
     max_entered_states: int | None = None,
+    board_width: int = 8,
+    use_symmetry: bool = False,
+    trace_depth: int = -1,
+    log_moves: bool = False,
     progress_stream=sys.stderr,
 ) -> tuple[Solver, float, bool]:
+    validate_board_width(board_width)
     solver = Solver(
         progress_interval=progress_interval,
         max_entered_states=max_entered_states,
+        board_width=board_width,
+        use_symmetry=use_symmetry,
+        trace_depth=trace_depth,
+        log_moves=log_moves,
         progress_stream=progress_stream,
     )
     started = time.perf_counter()
     complete = True
     try:
-        solver.solve(initial_state())
+        solver.solve(initial_state(board_width))
     except SolveLimitReachedError as exc:
         complete = False
         print(str(exc), file=progress_stream)
@@ -121,8 +131,11 @@ def build_metadata(
     elapsed_seconds: float,
     jsonl_path: Path,
     gzip_path: Path | None,
+    board_width: int = 8,
 ) -> ExportMetadata:
-    initial_packed_result = solver.memo.get(state_key(initial_state())) if complete else None
+    initial_packed_result = (
+        solver.memo.get(state_key(initial_state(board_width), board_width)) if complete else None
+    )
     initial_result = (
         None if initial_packed_result is None else _unpack_result(initial_packed_result)
     )
@@ -137,6 +150,7 @@ def build_metadata(
 
     return ExportMetadata(
         complete=complete,
+        board_width=board_width,
         states=len(solver.memo),
         elapsed_seconds=elapsed_seconds,
         outcome=None if initial_result is None else initial_result.outcome,
@@ -171,6 +185,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--metadata-name", default="tablebase.metadata.json")
     parser.add_argument("--gzip", action="store_true", help="also write tablebase.jsonl.gz")
     parser.add_argument(
+        "--board-width",
+        type=int,
+        default=8,
+        help="active board width: 2, 4, 6, or 8 files starting at a-file",
+    )
+    parser.add_argument(
         "--progress",
         type=int,
         default=100_000,
@@ -194,6 +214,22 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="also write progress logs to this file",
     )
+    parser.add_argument(
+        "--symmetry",
+        action="store_true",
+        help="canonicalize horizontal mirror positions internally",
+    )
+    parser.add_argument(
+        "--trace-depth",
+        type=int,
+        default=-1,
+        help="print tree state and legal moves down to this depth; -1 disables tracing",
+    )
+    parser.add_argument(
+        "--log-moves",
+        action="store_true",
+        help="print each move considered within trace depth",
+    )
     return parser
 
 
@@ -210,6 +246,10 @@ def main(argv: list[str] | None = None) -> int:
         solver, elapsed, complete = solve_tablebase(
             progress_interval=args.progress,
             max_entered_states=args.max_entered,
+            board_width=args.board_width,
+            use_symmetry=args.symmetry,
+            trace_depth=args.trace_depth,
+            log_moves=args.log_moves,
             progress_stream=progress_stream,
         )
         if not complete:
@@ -234,6 +274,7 @@ def main(argv: list[str] | None = None) -> int:
             elapsed_seconds=elapsed,
             jsonl_path=jsonl_path,
             gzip_path=gzip_path,
+            board_width=args.board_width,
         )
         metadata_path = args.output_dir / args.metadata_name
         write_metadata(metadata, metadata_path)

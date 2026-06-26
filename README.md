@@ -58,17 +58,27 @@ Run the recursive solver:
 py solve.py --progress 100000
 ```
 
+Run a smaller board width. Supported widths are `2`, `4`, `6`, and `8`; width `2`
+uses files `a` and `b`, width `4` uses `a` through `d`, and so on.
+
+```powershell
+py solve.py --board-width 2 --progress 10 --trace-depth 1 --log-moves
+```
+
+Trace output includes the current tree path, side to move, normalized key, pawn
+locations, legal moves, and each move being considered within the selected depth.
+
 For bounded measurement runs while the full initial solve is still being optimized:
 
 ```powershell
-py solve.py --progress 10000 --max-entered 100000
+py solve.py --board-width 8 --progress 10000 --max-entered 100000
 ```
 
 Measure reachable state-space properties:
 
 ```powershell
 py measure.py --max-states 10000
-py measure.py --max-states 1000 --solve --solve-max-entered 1000 --progress 500
+py measure.py --board-width 2 --max-states 1000 --solve --solve-max-entered 1000 --progress 500
 ```
 
 ## Tablebase Export Pipeline
@@ -79,15 +89,15 @@ Run the full local pipeline:
 py -m unittest discover -s tests
 py -m ruff check .
 py -m ruff format --check .
-py export_tablebase.py --output-dir dist --gzip --progress 1000000 --export-progress 1000000 --log-file dist/export.log
+py export_tablebase.py --board-width 8 --output-dir dist/w8 --gzip --progress 1000000 --export-progress 1000000 --log-file dist/w8/export.log
 ```
 
 The exporter solves the initial position exactly, then writes:
 
-- `dist/tablebase.jsonl`
-- `dist/tablebase.jsonl.gz`
-- `dist/tablebase.metadata.json`
-- `dist/export.log`
+- `dist/w8/tablebase.jsonl`
+- `dist/w8/tablebase.jsonl.gz`
+- `dist/w8/tablebase.metadata.json`
+- `dist/w8/export.log`
 
 Console progress is printed during solving as:
 

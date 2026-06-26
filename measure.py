@@ -21,6 +21,7 @@ from rules import (
     rank_index,
     state_key,
     terminal_winner,
+    validate_board_width,
 )
 from solve import LOSS, WIN, SolveLimitReachedError, Solver, _unpack_result
 
@@ -61,14 +62,20 @@ def remaining_potential(state: State) -> int:
     return white_distance + black_distance
 
 
-def measure_reachable(start: State, *, max_states: int | None = None) -> ReachabilityMeasurement:
+def measure_reachable(
+    start: State,
+    *,
+    max_states: int | None = None,
+    board_width: int = 8,
+) -> ReachabilityMeasurement:
+    validate_board_width(board_width)
     if max_states is not None and max_states < 1:
         raise ValueError("max_states must be positive when set")
 
     started = time.perf_counter()
     tracemalloc.start()
     visited: set[int] = set()
-    stack: list[tuple[State, int]] = [(normalize_state(start), 0)]
+    stack: list[tuple[State, int]] = [(normalize_state(start, board_width), 0)]
     potential_counts: Counter[int] = Counter()
     max_depth = 0
     terminal_states = 0
@@ -79,7 +86,7 @@ def measure_reachable(start: State, *, max_states: int | None = None) -> Reachab
 
     while stack:
         state, depth = stack.pop()
-        key = state_key(state)
+        key = state_key(state, board_width)
         if key in visited:
             continue
         if max_states is not None and len(visited) >= max_states:
@@ -91,7 +98,7 @@ def measure_reachable(start: State, *, max_states: int | None = None) -> Reachab
         potential_counts[remaining_potential(state)] += 1
 
         winner = terminal_winner(state)
-        moves = legal_moves(state)
+        moves = legal_moves(state, board_width)
         if winner is not None:
             terminal_states += 1
             if winner == WHITE:
@@ -103,7 +110,12 @@ def measure_reachable(start: State, *, max_states: int | None = None) -> Reachab
 
         if winner is None and moves:
             for move in reversed(moves):
-                stack.append((make_move(state, move, validate=False), depth + 1))
+                stack.append(
+                    (
+                        make_move(state, move, validate=False, board_width=board_width),
+                        depth + 1,
+                    )
+                )
 
     _, peak_memory_bytes = tracemalloc.get_traced_memory()
     tracemalloc.stop()
@@ -127,10 +139,13 @@ def measure_solve(
     *,
     progress_interval: int = 0,
     max_entered_states: int | None = None,
+    board_width: int = 8,
 ) -> SolveMeasurement:
+    validate_board_width(board_width)
     solver = Solver(
         progress_interval=progress_interval,
         max_entered_states=max_entered_states,
+        board_width=board_width,
     )
     started = time.perf_counter()
     try:
@@ -189,6 +204,12 @@ def _print_solve(measurement: SolveMeasurement) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Measure 8-pawn chess state space.")
     parser.add_argument(
+        "--board-width",
+        type=int,
+        default=8,
+        help="active board width: 2, 4, 6, or 8 files starting at a-file",
+    )
+    parser.add_argument(
         "--max-states",
         type=int,
         default=None,
@@ -216,14 +237,19 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    reachability = measure_reachable(initial_state(), max_states=args.max_states)
+    reachability = measure_reachable(
+        initial_state(args.board_width),
+        max_states=args.max_states,
+        board_width=args.board_width,
+    )
     _print_reachability(reachability)
     if args.solve:
         print()
         solve_measurement = measure_solve(
-            initial_state(),
+            initial_state(args.board_width),
             progress_interval=args.progress,
             max_entered_states=args.solve_max_entered,
+            board_width=args.board_width,
         )
         _print_solve(solve_measurement)
         if not solve_measurement.complete:

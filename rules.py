@@ -27,6 +27,7 @@ RANK_8 = 0xFF00000000000000
 ALL_SQUARES = (1 << BOARD_SIZE) - 1
 
 FILES = "abcdefgh"
+VALID_BOARD_WIDTHS = (2, 4, 6, 8)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,6 +80,11 @@ def validate_state_fields(state: State) -> None:
         validate_square(state.ep_square)
 
 
+def validate_board_width(board_width: int) -> None:
+    if board_width not in VALID_BOARD_WIDTHS:
+        raise ValueError(f"board_width must be one of {VALID_BOARD_WIDTHS}: {board_width}")
+
+
 def bit(square: int) -> int:
     validate_square(square)
     return 1 << square
@@ -92,6 +98,12 @@ def file_index(square: int) -> int:
 def rank_index(square: int) -> int:
     validate_square(square)
     return square // 8
+
+
+def square_is_on_board(square: int, board_width: int = 8) -> bool:
+    validate_square(square)
+    validate_board_width(board_width)
+    return file_index(square) < board_width
 
 
 def square_to_algebraic(square: int) -> str:
@@ -122,8 +134,16 @@ def decode_move(code: int) -> Move:
     return Move(code & 0x3F, (code >> 6) & 0x3F, (code >> 12) & 0xF)
 
 
-def initial_state() -> State:
-    return State(RANK_2, RANK_7, WHITE, NO_EP)
+def _rank_width_mask(rank: int, board_width: int) -> int:
+    validate_board_width(board_width)
+    if not 0 <= rank <= 7:
+        raise ValueError(f"rank must be in 0..7: {rank}")
+    return sum(1 << (rank * 8 + file_) for file_ in range(board_width))
+
+
+def initial_state(board_width: int = 8) -> State:
+    validate_board_width(board_width)
+    return State(_rank_width_mask(1, board_width), _rank_width_mask(6, board_width), WHITE, NO_EP)
 
 
 def occupied(state: State) -> int:
@@ -163,11 +183,14 @@ def iter_squares(bitboard: int) -> tuple[int, ...]:
     return tuple(squares)
 
 
-def _ep_capture_exists(state: State) -> bool:
+def _ep_capture_exists(state: State, board_width: int = 8) -> bool:
+    validate_board_width(board_width)
     if state.ep_square == NO_EP:
         return False
 
     ep = state.ep_square
+    if not square_is_on_board(ep, board_width):
+        return False
     ep_file = file_index(ep)
     pawns = pawns_for_turn(state)
 
@@ -186,25 +209,31 @@ def _ep_capture_exists(state: State) -> bool:
         from_square = ep + offset
         if not 0 <= from_square < BOARD_SIZE:
             continue
-        if abs(file_index(from_square) - ep_file) == 1 and pawns & bit(from_square):
+        if (
+            square_is_on_board(from_square, board_width)
+            and abs(file_index(from_square) - ep_file) == 1
+            and pawns & bit(from_square)
+        ):
             return True
     return False
 
 
-def normalize_state(state: State) -> State:
+def normalize_state(state: State, board_width: int = 8) -> State:
+    validate_board_width(board_width)
     validate_state_fields(state)
-    if state.ep_square == NO_EP or _ep_capture_exists(state):
+    if state.ep_square == NO_EP or _ep_capture_exists(state, board_width):
         return state
     return State(state.white, state.black, state.turn, NO_EP)
 
 
-def state_key(state: State) -> int:
-    normalized = normalize_state(state)
+def state_key(state: State, board_width: int = 8) -> int:
+    normalized = normalize_state(state, board_width)
     ep_code = 0 if normalized.ep_square == NO_EP else normalized.ep_square + 1
     return normalized.white | (normalized.black << 64) | (normalized.turn << 128) | (ep_code << 129)
 
 
-def state_from_key(key: int) -> State:
+def state_from_key(key: int, board_width: int = 8) -> State:
+    validate_board_width(board_width)
     if key < 0:
         raise ValueError("state key must be non-negative")
     white = key & ALL_SQUARES
@@ -214,13 +243,16 @@ def state_from_key(key: int) -> State:
     if ep_code > 64:
         raise ValueError(f"invalid ep code in state key: {ep_code}")
     ep_square = NO_EP if ep_code == 0 else ep_code - 1
-    return normalize_state(State(white, black, turn, ep_square))
+    return normalize_state(State(white, black, turn, ep_square), board_width)
 
 
-def _single_push(state: State, from_square: int) -> int | None:
+def _single_push(state: State, from_square: int, board_width: int = 8) -> int | None:
+    validate_board_width(board_width)
     direction = 8 if state.turn == WHITE else -8
     to_square = from_square + direction
     if not 0 <= to_square < BOARD_SIZE:
+        return None
+    if not square_is_on_board(to_square, board_width):
         return None
     if occupied(state) & bit(to_square):
         return None
@@ -237,17 +269,25 @@ def _is_goal_rank(turn: int, square: int) -> bool:
     return rank_index(square) == goal_rank
 
 
-def _capture_targets(state: State, from_square: int) -> tuple[int, ...]:
+def _capture_targets(state: State, from_square: int, board_width: int = 8) -> tuple[int, ...]:
+    validate_board_width(board_width)
     from_file = file_index(from_square)
     if state.turn == WHITE:
-        pairs = ((from_file > 0, from_square + 7), (from_file < 7, from_square + 9))
+        pairs = (
+            (from_file > 0, from_square + 7),
+            (from_file < board_width - 1, from_square + 9),
+        )
     else:
-        pairs = ((from_file > 0, from_square - 9), (from_file < 7, from_square - 7))
+        pairs = (
+            (from_file > 0, from_square - 9),
+            (from_file < board_width - 1, from_square - 7),
+        )
     return tuple(target for allowed, target in pairs if allowed and 0 <= target < BOARD_SIZE)
 
 
-def legal_moves(state: State) -> tuple[Move, ...]:
-    state = normalize_state(state)
+def legal_moves(state: State, board_width: int = 8) -> tuple[Move, ...]:
+    validate_board_width(board_width)
+    state = normalize_state(state, board_width)
     if is_terminal(state):
         return ()
 
@@ -257,7 +297,9 @@ def legal_moves(state: State) -> tuple[Move, ...]:
     direction = 8 if state.turn == WHITE else -8
 
     for from_square in iter_squares(pawns_for_turn(state)):
-        one_step = _single_push(state, from_square)
+        if not square_is_on_board(from_square, board_width):
+            continue
+        one_step = _single_push(state, from_square, board_width)
         if one_step is not None:
             flags = FLAG_WINNING if _is_goal_rank(state.turn, one_step) else 0
             moves.append(Move(from_square, one_step, flags))
@@ -266,7 +308,7 @@ def legal_moves(state: State) -> tuple[Move, ...]:
             if _is_start_rank(state.turn, from_square) and not (all_pawns & bit(two_step)):
                 moves.append(Move(from_square, two_step, FLAG_DOUBLE))
 
-        for target in _capture_targets(state, from_square):
+        for target in _capture_targets(state, from_square, board_width):
             target_bit = bit(target)
             if enemies & target_bit:
                 flags = FLAG_CAPTURE
@@ -279,20 +321,27 @@ def legal_moves(state: State) -> tuple[Move, ...]:
     return tuple(sorted(moves))
 
 
-def find_legal_move(state: State, coord: str) -> Move:
+def find_legal_move(state: State, coord: str, board_width: int = 8) -> Move:
     if len(coord) != 4:
         raise ValueError(f"coordinate move must have length 4: {coord!r}")
     from_square = algebraic_to_square(coord[:2])
     to_square = algebraic_to_square(coord[2:])
-    for move in legal_moves(state):
+    for move in legal_moves(state, board_width):
         if move.from_square == from_square and move.to_square == to_square:
             return move
     raise ValueError(f"illegal move {coord!r} in state {state}")
 
 
-def make_move(state: State, move: Move, *, validate: bool = True) -> State:
-    state = normalize_state(state)
-    if validate and move not in legal_moves(state):
+def make_move(
+    state: State,
+    move: Move,
+    *,
+    validate: bool = True,
+    board_width: int = 8,
+) -> State:
+    validate_board_width(board_width)
+    state = normalize_state(state, board_width)
+    if validate and move not in legal_moves(state, board_width):
         raise ValueError(f"illegal move {move_to_coord(move)} in state {state}")
 
     mover_bit = bit(move.from_square)
@@ -320,23 +369,36 @@ def make_move(state: State, move: Move, *, validate: bool = True) -> State:
             next_ep = move.from_square - 8
         next_turn = WHITE
 
-    return normalize_state(State(white, black, next_turn, next_ep))
+    return normalize_state(State(white, black, next_turn, next_ep), board_width)
 
 
-def play_coord_moves(state: State, coords: tuple[str, ...] | list[str]) -> State:
+def play_coord_moves(
+    state: State,
+    coords: tuple[str, ...] | list[str],
+    board_width: int = 8,
+) -> State:
     current = state
     for coord in coords:
-        current = make_move(current, find_legal_move(current, coord))
+        current = make_move(
+            current,
+            find_legal_move(current, coord, board_width),
+            board_width=board_width,
+        )
     return current
 
 
-def perft(state: State, depth: int) -> int:
+def perft(state: State, depth: int, board_width: int = 8) -> int:
+    validate_board_width(board_width)
     if depth < 0:
         raise ValueError(f"depth must be non-negative: {depth}")
     if depth == 0:
         return 1
 
     total = 0
-    for move in legal_moves(state):
-        total += perft(make_move(state, move, validate=False), depth - 1)
+    for move in legal_moves(state, board_width):
+        total += perft(
+            make_move(state, move, validate=False, board_width=board_width),
+            depth - 1,
+            board_width,
+        )
     return total
