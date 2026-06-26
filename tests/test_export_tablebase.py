@@ -1,11 +1,12 @@
 import gzip
 import json
+import struct
 import tempfile
 import unittest
 from pathlib import Path
 
 from compact_solve import CompactSolver
-from export_tablebase import build_metadata, gzip_file, write_jsonl, write_metadata
+from export_tablebase import build_metadata, gzip_file, write_binary, write_jsonl, write_metadata
 from rules import algebraic_to_square, bit, initial_state, state_key
 from solve import Solver
 
@@ -51,6 +52,22 @@ class ExportTablebaseTests(unittest.TestCase):
             gzip_file(source, target)
             with gzip.open(target, "rt", encoding="utf-8") as file:
                 self.assertEqual(file.read(), source.read_text(encoding="utf-8"))
+
+    def test_write_binary_exports_fixed_records(self) -> None:
+        solver = CompactSolver(board_width=2)
+        solver.solve(initial_state(2))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tablebase.bin"
+            write_binary(solver, path, board_width=2, export_progress_interval=0)
+            data = path.read_bytes()
+
+            self.assertEqual(data[:4], b"PWTB")
+            self.assertEqual(data[4], 1)
+            self.assertEqual(data[5], 2)
+            self.assertEqual(data[6], 17)
+            self.assertEqual(data[7], 22)
+            self.assertEqual(struct.unpack("<Q", data[8:16])[0], len(solver.memo))
+            self.assertEqual(len(data), 16 + len(solver.memo) * 22)
 
     def test_write_metadata(self) -> None:
         solver = small_solver()

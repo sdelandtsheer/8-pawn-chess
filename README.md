@@ -102,14 +102,14 @@ Run the full local pipeline:
 py -m unittest discover -s tests
 py -m ruff check .
 py -m ruff format --check .
-py export_tablebase.py --backend compact --board-width 8 --output-dir dist/w8 --gzip --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --log-file dist/w8/export.log
+py export_tablebase.py --backend compact --board-width 8 --output-dir dist/w8 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w8/checkpoint.pkl --checkpoint-interval 5000000 --log-file dist/w8/export.log
 ```
 
 The exporter solves the initial position exactly, then writes:
 
-- `dist/w8/tablebase.jsonl`
-- `dist/w8/tablebase.jsonl.gz`
+- `dist/w8/tablebase.bin`
 - `dist/w8/tablebase.metadata.json`
+- `dist/w8/checkpoint.pkl`
 - `dist/w8/export.log`
 
 Console progress is printed during solving as:
@@ -127,10 +127,22 @@ exported=1000000
 Use a bounded dry run to verify logging without producing a partial table:
 
 ```powershell
-py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --progress 1000000 --max-entered 5000000 --progress-path-depth 20 --log-file dist/w6/export.log --gzip
+py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --max-entered 5000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 1000000 --log-file dist/w6/export.log
 ```
 
-Bounded runs exit nonzero and intentionally do not write tablebase artifacts.
+Bounded runs exit nonzero and intentionally do not write final tablebase
+artifacts. With `--checkpoint`, they do write a resumable `checkpoint.pkl`.
+
+Resume a compact run from the checkpoint:
+
+```powershell
+py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --resume --log-file dist/w6/export.log
+```
+
+The binary tablebase format is fixed-width and uses standard 8x8 keys:
+
+- 16-byte header: `PWTB`, version, board width, key bytes, record bytes, row count.
+- Each row is 22 bytes: 17 little-endian key bytes, signed outcome byte, 16-bit DTM, 16-bit best move.
 
 ## Browser Width 4
 

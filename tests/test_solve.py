@@ -1,6 +1,8 @@
 import os
+import tempfile
 import unittest
 from io import StringIO
+from pathlib import Path
 
 from compact_solve import CompactSolver
 from rules import (
@@ -196,6 +198,32 @@ class FastSolverParityTests(unittest.TestCase):
         self.assertEqual(result.dtm, 8)
         self.assertEqual(best_move_to_text(result), "a2a3")
         self.assertEqual(solver.stats.states_solved, 515)
+
+    def test_compact_checkpoint_can_resume_width_two_solve(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint_path = Path(tmp) / "compact.pkl"
+            solver = CompactSolver(
+                board_width=2,
+                max_entered_states=150,
+                checkpoint_path=checkpoint_path,
+                checkpoint_interval=50,
+                progress_stream=StringIO(),
+            )
+            with self.assertRaises(SolveLimitReachedError):
+                solver.solve(initial_state(2))
+            self.assertTrue(checkpoint_path.exists())
+
+            resumed = CompactSolver(
+                board_width=2,
+                checkpoint_path=checkpoint_path,
+                resume=True,
+                progress_stream=StringIO(),
+            )
+            self.assertGreater(len(resumed.memo), 0)
+            result = resumed.solve(initial_state(2))
+            self.assertEqual(result.outcome, LOSS)
+            self.assertEqual(result.dtm, 8)
+            self.assertEqual(best_move_to_text(result), "a2a3")
 
     def test_compact_width_four_initial_key_uses_standard_tablebase_format(self) -> None:
         solver = CompactSolver(board_width=4)

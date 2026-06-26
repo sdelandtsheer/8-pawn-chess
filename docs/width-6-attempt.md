@@ -76,15 +76,33 @@ Correctness checks:
 - Width 4 compact result matches the existing tablebase: `WIN`, DTM `21`, best move `b2b4`, `1,033,490` states.
 - Compact export writes standard 8x8 tablebase keys, not dense internal keys.
 
-Full width 6 export command:
+Recommended width 6 export command:
 
 ```powershell
-py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --gzip --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --log-file dist/w6/export.log
+py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --log-file dist/w6/export.log
 ```
+
+Resume command:
+
+```powershell
+py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --resume --log-file dist/w6/export.log
+```
+
+Binary export:
+
+- `--binary` writes `tablebase.bin`.
+- `--skip-jsonl` avoids writing the large debug JSONL file.
+- Records use the standard 8x8 tablebase key so browser keying can stay consistent.
+- Each record is currently `22` bytes before HTTP compression.
+
+Checkpointing:
+
+- Checkpoints store the compact memo table and stats using Python pickle.
+- Resume is memo-based. It may redo the unfinished branch that was active at shutdown, but solved states are reused.
+- Controlled `--max-entered` stops and Ctrl+C both save a final checkpoint when `--checkpoint` is configured.
 
 Current remaining backend requirements:
 
-- Compact table storage instead of Python `dict[int, int]`.
-- Root/progress checkpointing so long runs can resume.
-- Browser export that does not require JSONL as the final artifact.
+- Browser reader for `tablebase.bin`.
+- More compact in-memory storage than Python `dict[int, int]`.
 - If width 8 remains too large, port the compact backend to Rust/C++ or implement retrograde/topological solving.

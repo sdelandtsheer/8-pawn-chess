@@ -9,9 +9,11 @@ move generator.
 from __future__ import annotations
 
 import argparse
+import pickle
 import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from rules import (
     BLACK,
@@ -46,6 +48,9 @@ class CompactSolverStats:
     max_depth: int = 0
 
 
+CHECKPOINT_VERSION = 1
+
+
 class CompactSolver:
     """Memoized exact DFS using dense board-width-specific bitboards."""
 
@@ -58,6 +63,9 @@ class CompactSolver:
         trace_depth: int = -1,
         log_moves: bool = False,
         progress_path_depth: int = 8,
+        checkpoint_path: Path | None = None,
+        checkpoint_interval: int = 0,
+        resume: bool = False,
         progress_stream=sys.stderr,
     ) -> None:
         validate_board_width(board_width)
@@ -69,6 +77,8 @@ class CompactSolver:
             raise ValueError("trace_depth must be -1 or greater")
         if progress_path_depth < 0:
             raise ValueError("progress_path_depth must be non-negative")
+        if checkpoint_interval < 0:
+            raise ValueError("checkpoint_interval must be non-negative")
 
         self.board_width = board_width
         self.cells = board_width * 8
@@ -80,10 +90,17 @@ class CompactSolver:
         self.trace_depth = trace_depth
         self.log_moves = log_moves
         self.progress_path_depth = progress_path_depth
+        self.checkpoint_path = checkpoint_path
+        self.checkpoint_interval = checkpoint_interval
         self.progress_stream = progress_stream
         self._started_at = time.perf_counter()
         self._last_progress_entered = 0
+        self._last_checkpoint_solved = 0
         self._path: list[int] = []
+        if resume:
+            if checkpoint_path is None:
+                raise ValueError("resume requires checkpoint_path")
+            self.load_checkpoint(checkpoint_path)
 
     def solve(self, state: State) -> Result:
         return _unpack_result(self._solve_key(self.state_to_key(state), depth=0))
@@ -108,6 +125,56 @@ class CompactSolver:
     def iter_standard_entries(self):
         for key, packed_result in self.memo.items():
             yield self.standard_key_from_compact_key(key), packed_result
+
+    def save_checkpoint(self, path: Path | None = None) -> None:
+        target = path if path is not None else self.checkpoint_path
+        if target is None:
+            raise ValueError("checkpoint path is not configured")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = target.with_suffix(target.suffix + ".tmp")
+        payload = {
+            "version": CHECKPOINT_VERSION,
+            "board_width": self.board_width,
+            "memo": self.memo,
+            "stats": self.stats,
+            "saved_at": time.time(),
+        }
+        try:
+            with temp_path.open("wb") as file:
+                pickle.dump(payload, file, protocol=pickle.HIGHEST_PROTOCOL)
+            temp_path.replace(target)
+            self._last_checkpoint_solved = self.stats.states_solved
+            print(
+                f"checkpoint={target} states={self.stats.states_solved}",
+                file=self.progress_stream,
+                flush=True,
+            )
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
+
+    def load_checkpoint(self, path: Path) -> None:
+        with path.open("rb") as file:
+            payload = pickle.load(file)
+        if payload.get("version") != CHECKPOINT_VERSION:
+            raise ValueError(f"unsupported checkpoint version in {path}")
+        if payload.get("board_width") != self.board_width:
+            raise ValueError(
+                f"checkpoint board width {payload.get('board_width')} does not match "
+                f"{self.board_width}"
+            )
+        memo = payload.get("memo")
+        stats = payload.get("stats")
+        if not isinstance(memo, dict) or not isinstance(stats, CompactSolverStats):
+            raise ValueError(f"invalid checkpoint payload in {path}")
+        self.memo = memo
+        self.stats = stats
+        self._last_checkpoint_solved = self.stats.states_solved
+        print(
+            f"resumed_checkpoint={path} states={self.stats.states_solved}",
+            file=self.progress_stream,
+            flush=True,
+        )
 
     def standard_key_from_compact_key(self, key: int) -> int:
         white, black, turn, ep_square = self._unpack_key(key)
@@ -397,7 +464,15 @@ class CompactSolver:
         self.memo[key] = result
         self.stats.states_solved += 1
         self._log_progress()
+        self._maybe_checkpoint()
         return result
+
+    def _maybe_checkpoint(self) -> None:
+        if self.checkpoint_path is None or not self.checkpoint_interval:
+            return
+        if self.stats.states_solved - self._last_checkpoint_solved < self.checkpoint_interval:
+            return
+        self.save_checkpoint()
 
     def _log_progress(self) -> None:
         if (
@@ -550,6 +625,9 @@ def solve_initial(
     trace_depth: int = -1,
     log_moves: bool = False,
     progress_path_depth: int = 8,
+    checkpoint_path: Path | None = None,
+    checkpoint_interval: int = 0,
+    resume: bool = False,
 ) -> tuple[Result, CompactSolver, float]:
     solver = CompactSolver(
         board_width=board_width,
@@ -558,6 +636,9 @@ def solve_initial(
         trace_depth=trace_depth,
         log_moves=log_moves,
         progress_path_depth=progress_path_depth,
+        checkpoint_path=checkpoint_path,
+        checkpoint_interval=checkpoint_interval,
+        resume=resume,
     )
     started = time.perf_counter()
     result = solver.solve(initial_state(board_width))
@@ -573,6 +654,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trace-depth", type=int, default=-1)
     parser.add_argument("--log-moves", action="store_true")
     parser.add_argument("--progress-path-depth", type=int, default=8)
+    parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--checkpoint-interval", type=int, default=0)
+    parser.add_argument("--resume", action="store_true")
     return parser
 
 
@@ -586,6 +670,9 @@ def main(argv: list[str] | None = None) -> int:
             trace_depth=args.trace_depth,
             log_moves=args.log_moves,
             progress_path_depth=args.progress_path_depth,
+            checkpoint_path=args.checkpoint,
+            checkpoint_interval=args.checkpoint_interval,
+            resume=args.resume,
         )
     except SolveLimitReachedError as exc:
         print(str(exc), file=sys.stderr)
