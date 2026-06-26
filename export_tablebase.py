@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TextIO
 
+from compact_solve import CompactSolver
 from rules import initial_state, state_key, validate_board_width
 from solve import LOSS, WIN, SolveLimitReachedError, Solver, _unpack_result, best_move_to_text
 
@@ -50,21 +51,38 @@ def solve_tablebase(
     progress_interval: int,
     max_entered_states: int | None = None,
     board_width: int = 8,
+    backend: str = "classic",
     use_symmetry: bool = False,
     trace_depth: int = -1,
     log_moves: bool = False,
+    progress_path_depth: int = 8,
     progress_stream=sys.stderr,
-) -> tuple[Solver, float, bool]:
+) -> tuple[Solver | CompactSolver, float, bool]:
     validate_board_width(board_width)
-    solver = Solver(
-        progress_interval=progress_interval,
-        max_entered_states=max_entered_states,
-        board_width=board_width,
-        use_symmetry=use_symmetry,
-        trace_depth=trace_depth,
-        log_moves=log_moves,
-        progress_stream=progress_stream,
-    )
+    if backend == "compact":
+        if use_symmetry:
+            raise ValueError("--symmetry is only supported by --backend classic")
+        solver = CompactSolver(
+            board_width=board_width,
+            progress_interval=progress_interval,
+            max_entered_states=max_entered_states,
+            trace_depth=trace_depth,
+            log_moves=log_moves,
+            progress_path_depth=progress_path_depth,
+            progress_stream=progress_stream,
+        )
+    elif backend == "classic":
+        solver = Solver(
+            progress_interval=progress_interval,
+            max_entered_states=max_entered_states,
+            board_width=board_width,
+            use_symmetry=use_symmetry,
+            trace_depth=trace_depth,
+            log_moves=log_moves,
+            progress_stream=progress_stream,
+        )
+    else:
+        raise ValueError(f"unknown backend: {backend}")
     started = time.perf_counter()
     complete = True
     try:
@@ -77,7 +95,7 @@ def solve_tablebase(
 
 
 def write_jsonl(
-    solver: Solver,
+    solver: Solver | CompactSolver,
     path: Path,
     *,
     export_progress_interval: int,
@@ -87,7 +105,12 @@ def write_jsonl(
     temp_path = path.with_suffix(path.suffix + ".tmp")
     try:
         with temp_path.open("w", encoding="utf-8", newline="\n") as file:
-            for index, (key, packed_result) in enumerate(solver.memo.items(), start=1):
+            entries = (
+                solver.iter_standard_entries()
+                if isinstance(solver, CompactSolver)
+                else solver.memo.items()
+            )
+            for index, (key, packed_result) in enumerate(entries, start=1):
                 result = _unpack_result(packed_result)
                 file.write(
                     json.dumps(
@@ -125,7 +148,7 @@ def gzip_file(source: Path, target: Path) -> None:
 
 
 def build_metadata(
-    solver: Solver,
+    solver: Solver | CompactSolver,
     *,
     complete: bool,
     elapsed_seconds: float,
@@ -133,12 +156,14 @@ def build_metadata(
     gzip_path: Path | None,
     board_width: int = 8,
 ) -> ExportMetadata:
-    initial_packed_result = (
-        solver.memo.get(state_key(initial_state(board_width), board_width)) if complete else None
-    )
-    initial_result = (
-        None if initial_packed_result is None else _unpack_result(initial_packed_result)
-    )
+    if isinstance(solver, CompactSolver):
+        initial_result = solver.initial_result() if complete else None
+    else:
+        initial_key = state_key(initial_state(board_width), board_width)
+        initial_packed_result = solver.memo.get(initial_key) if complete else None
+        initial_result = (
+            None if initial_packed_result is None else _unpack_result(initial_packed_result)
+        )
     unpacked_results = (_unpack_result(result) for result in solver.memo.values())
     win_states = 0
     loss_states = 0
@@ -191,6 +216,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="active board width: 2, 4, 6, or 8 files starting at a-file",
     )
     parser.add_argument(
+        "--backend",
+        choices=("classic", "compact"),
+        default="classic",
+        help="solver backend; compact uses dense width-specific keys internally",
+    )
+    parser.add_argument(
         "--progress",
         type=int,
         default=100_000,
@@ -230,6 +261,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print each move considered within trace depth",
     )
+    parser.add_argument(
+        "--progress-path-depth",
+        type=int,
+        default=8,
+        help="with --backend compact, include this many current-path plies in progress output",
+    )
     return parser
 
 
@@ -247,9 +284,11 @@ def main(argv: list[str] | None = None) -> int:
             progress_interval=args.progress,
             max_entered_states=args.max_entered,
             board_width=args.board_width,
+            backend=args.backend,
             use_symmetry=args.symmetry,
             trace_depth=args.trace_depth,
             log_moves=args.log_moves,
+            progress_path_depth=args.progress_path_depth,
             progress_stream=progress_stream,
         )
         if not complete:

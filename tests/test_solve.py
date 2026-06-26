@@ -2,6 +2,7 @@ import os
 import unittest
 from io import StringIO
 
+from compact_solve import CompactSolver
 from rules import (
     algebraic_to_square,
     bit,
@@ -164,6 +165,44 @@ class FastSolverParityTests(unittest.TestCase):
         self.assertEqual(result.dtm, 8)
         self.assertEqual(best_move_to_text(result), "a2a3")
         self.assertEqual(solver.stats.states_solved, 515)
+
+    def test_compact_move_generation_matches_rules_engine_width_two(self) -> None:
+        solver = CompactSolver(board_width=2)
+        key = solver.state_to_key(initial_state(2))
+        white, black, turn, ep_square = solver._unpack_key(key)
+        self.assertEqual(
+            solver._legal_move_codes(white, black, turn, ep_square),
+            [encode_move(move) for move in legal_moves(initial_state(2), board_width=2)],
+        )
+
+    def test_compact_make_move_matches_rules_engine_keys_width_two(self) -> None:
+        solver = CompactSolver(board_width=2)
+        state = initial_state(2)
+        key = solver.state_to_key(state)
+        white, black, turn, _ = solver._unpack_key(key)
+        for move in legal_moves(state, board_width=2):
+            with self.subTest(move=move):
+                child_key = solver._make_move_key(white, black, turn, encode_move(move))
+                expected = state_key(
+                    make_move(state, move, validate=False, board_width=2),
+                    board_width=2,
+                )
+                self.assertEqual(solver.standard_key_from_compact_key(child_key), expected)
+
+    def test_compact_width_two_initial_position_solves(self) -> None:
+        solver = CompactSolver(board_width=2)
+        result = solver.solve(initial_state(2))
+        self.assertEqual(result.outcome, LOSS)
+        self.assertEqual(result.dtm, 8)
+        self.assertEqual(best_move_to_text(result), "a2a3")
+        self.assertEqual(solver.stats.states_solved, 515)
+
+    def test_compact_width_four_initial_key_uses_standard_tablebase_format(self) -> None:
+        solver = CompactSolver(board_width=4)
+        self.assertEqual(
+            solver.standard_key_from_compact_key(solver.initial_key()),
+            state_key(initial_state(4), board_width=4),
+        )
 
     @unittest.skipUnless(
         os.getenv("RUN_WIDTH4_SOLVER_TESTS") == "1",

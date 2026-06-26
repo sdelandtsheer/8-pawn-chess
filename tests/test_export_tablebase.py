@@ -4,8 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from compact_solve import CompactSolver
 from export_tablebase import build_metadata, gzip_file, write_jsonl, write_metadata
-from rules import algebraic_to_square, bit
+from rules import algebraic_to_square, bit, initial_state, state_key
 from solve import Solver
 
 
@@ -30,6 +31,17 @@ class ExportTablebaseTests(unittest.TestCase):
             self.assertIn("outcome", rows[0])
             self.assertIn("dtm", rows[0])
             self.assertIn("best_move", rows[0])
+
+    def test_write_jsonl_exports_compact_solver_with_standard_keys(self) -> None:
+        solver = CompactSolver(board_width=2)
+        solver.solve(initial_state(2))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tablebase.jsonl"
+            write_jsonl(solver, path, export_progress_interval=0)
+            rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+            keys = {row["key"] for row in rows}
+            self.assertEqual(len(rows), len(solver.memo))
+            self.assertIn(f"{state_key(initial_state(2), board_width=2):x}", keys)
 
     def test_gzip_file_round_trip(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -57,6 +69,22 @@ class ExportTablebaseTests(unittest.TestCase):
             self.assertEqual(loaded["board_width"], 8)
             self.assertEqual(loaded["states"], len(solver.memo))
             self.assertIsNone(loaded["gzip_path"])
+
+    def test_build_metadata_reads_compact_initial_result(self) -> None:
+        solver = CompactSolver(board_width=2)
+        solver.solve(initial_state(2))
+        with tempfile.TemporaryDirectory() as tmp:
+            metadata = build_metadata(
+                solver,
+                complete=True,
+                elapsed_seconds=1.25,
+                jsonl_path=Path(tmp) / "tablebase.jsonl",
+                gzip_path=None,
+                board_width=2,
+            )
+            self.assertEqual(metadata.board_width, 2)
+            self.assertEqual(metadata.dtm, 8)
+            self.assertEqual(metadata.best_move_coord, "a2a3")
 
 
 if __name__ == "__main__":
