@@ -159,3 +159,21 @@ fewest non-losing replies?
 The `zugzwang` bot follows this rule as a priority ordering instead of a blended
 weighted score. Width-4 testing showed this is stronger than the broader
 `principle` bot.
+
+## Mirror Copycat Finding
+
+The natural Black idea "copy White's move on the mirrored file/rank" is not a
+win in this game. It preserves symmetry, but it also preserves White's first-move
+tempo.
+
+Example pattern:
+
+```text
+1. h4 h5 2. g4 g5 3. hxg5 hxg4 4. g6 g3 5. g7 g2 6. g8
+```
+
+Black would mirror with `...g1` next, but White has already won. The immediate
+terminal rule matters: a copied race one ply later is too late.
+
+So symmetry is not enough. Black needs an active deviation that prevents White's
+breakthrough, not a blind copy.

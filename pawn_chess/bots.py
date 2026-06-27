@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from pawn_chess.rules import (
+    BLACK,
     NO_EP,
     WHITE,
     Move,
@@ -295,6 +296,29 @@ class ZugzwangBot:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class MirrorBot:
+    name: str = "mirror"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del rng
+        if state.turn == BLACK:
+            for move in moves:
+                if _restores_vertical_mirror(make_move(state, move, width), width):
+                    return move
+        side = state.turn
+        return max(
+            moves,
+            key=lambda move: _zugzwang_key(state, move, width, side),
+        )
+
+
 def bot_registry() -> dict[str, Bot]:
     return {
         "advance": AdvanceBot(),
@@ -304,6 +328,7 @@ def bot_registry() -> dict[str, Bot]:
         "edge": EdgeBot(),
         "first": FirstLegalBot(),
         "last": LastLegalBot(),
+        "mirror": MirrorBot(),
         "passer": PassedPawnBot(),
         "principle": PrincipleBot(),
         "random": RandomBot(),
@@ -469,6 +494,24 @@ def _zugzwang_key(state: State, move: Move, width: int, side: str) -> tuple[int,
     )
 
 
+def _restores_vertical_mirror(state: State, width: int) -> bool:
+    return state.black == _mirror_bitboard(state.white, width)
+
+
+def _mirror_bitboard(bitboard: int, width: int) -> int:
+    mirrored = 0
+    for square in _iter_raw_bits(bitboard):
+        file_ = file_of(square)
+        if file_ >= width:
+            continue
+        mirrored |= bit(_mirror_square(square))
+    return mirrored
+
+
+def _mirror_square(square: int) -> int:
+    return (7 - rank_of(square)) * 8 + file_of(square)
+
+
 def _static_eval(state: State, side: str, width: int) -> int:
     other = opposite(side)
     score = 600 * (count_pawns(state, side) - count_pawns(state, other))
@@ -580,6 +623,10 @@ def _moved_blocker(state: State, move: Move, width: int, side: str) -> bool:
 
 def _iter_side(state: State, side: str):
     bitboard = pawns(state, side)
+    yield from _iter_raw_bits(bitboard)
+
+
+def _iter_raw_bits(bitboard: int):
     while bitboard:
         pawn = bitboard & -bitboard
         yield pawn.bit_length() - 1

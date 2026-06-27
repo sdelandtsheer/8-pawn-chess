@@ -17,6 +17,7 @@ class BotRegistryTests(unittest.TestCase):
                 "edge",
                 "first",
                 "last",
+                "mirror",
                 "passer",
                 "principle",
                 "random",
