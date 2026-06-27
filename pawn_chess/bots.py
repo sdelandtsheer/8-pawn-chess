@@ -274,6 +274,25 @@ class OnePlyTacticalBot:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ZugzwangBot:
+    name: str = "zugzwang"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del rng
+        side = state.turn
+        return max(
+            moves,
+            key=lambda move: _zugzwang_key(state, move, width, side),
+        )
+
+
 def bot_registry() -> dict[str, Bot]:
     return {
         "advance": AdvanceBot(),
@@ -289,6 +308,7 @@ def bot_registry() -> dict[str, Bot]:
         "safe": SafeBot(),
         "tactical1": OnePlyTacticalBot(),
         "tempo": TempoBot(),
+        "zugzwang": ZugzwangBot(),
     }
 
 
@@ -385,6 +405,66 @@ def _tempo_score(state: State, side: str, width: int) -> int:
 
 def _creates_passed_after_move(state: State, move: Move, width: int, side: str) -> bool:
     return _creates_passed_pawn(make_move(state, move, width), side, move.to_square, width)
+
+
+def _zugzwang_key(state: State, move: Move, width: int, side: str) -> tuple[int, ...]:
+    child = make_move(state, move, width)
+    winner = terminal_winner(child, width)
+    if winner == side:
+        return (5, -_promotion_distance_after_move(move, side), move.capture, -move.to_square)
+    if winner == opposite(side):
+        return (-5, -move.to_square)
+
+    opponent_replies = legal_moves(child, width)
+    opponent_winning_replies = [
+        reply
+        for reply in opponent_replies
+        if terminal_winner(make_move(child, reply, width), width) == opposite(side)
+    ]
+    allows_immediate_loss = bool(opponent_winning_replies)
+
+    opponent_safe_replies = []
+    worst_our_followup_safe_count = 99
+    for reply in opponent_replies:
+        grandchild = make_move(child, reply, width)
+        if terminal_winner(grandchild, width) == opposite(side):
+            continue
+        if any(answer.winning for answer in legal_moves(grandchild, width)):
+            continue
+        opponent_safe_replies.append(reply)
+        worst_our_followup_safe_count = min(
+            worst_our_followup_safe_count,
+            _safe_move_count(grandchild, side, width),
+        )
+
+    if worst_our_followup_safe_count == 99:
+        worst_our_followup_safe_count = 0
+
+    child_safe_moves = _safe_move_count(child, side, width)
+    opponent_safe_count = len(opponent_safe_replies)
+    forcing_bonus = 1 if opponent_safe_count == 0 else 0
+    passer_bonus = int(_creates_passed_pawn(child, side, move.to_square, width))
+    clear_path_bonus = int(_path_clear(child, side, move.to_square, width))
+    tactical_bonus = 2 * int(move.capture) + 3 * int(move.en_passant)
+    progress = _advance_delta(move, side)
+    double_penalty = int(move.double) + 3 * int(
+        _double_is_en_passant_exposed(child, move, side, width)
+    )
+
+    return (
+        2 - int(allows_immediate_loss),
+        -opponent_safe_count,
+        worst_our_followup_safe_count,
+        child_safe_moves,
+        forcing_bonus,
+        passer_bonus,
+        clear_path_bonus,
+        tactical_bonus,
+        progress,
+        -double_penalty,
+        -move.from_square,
+        -move.to_square,
+    )
 
 
 def _static_eval(state: State, side: str, width: int) -> int:

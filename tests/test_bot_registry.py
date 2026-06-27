@@ -23,6 +23,7 @@ class BotRegistryTests(unittest.TestCase):
                 "safe",
                 "tactical1",
                 "tempo",
+                "zugzwang",
             },
         )
 
