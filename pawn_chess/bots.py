@@ -26,6 +26,7 @@ from pawn_chess.rules import (
 
 class Bot(Protocol):
     name: str
+    deterministic: bool
 
     def choose_move(
         self,
@@ -40,6 +41,7 @@ class Bot(Protocol):
 @dataclass(frozen=True, slots=True)
 class RandomBot:
     name: str = "random"
+    deterministic: bool = False
 
     def choose_move(
         self,

@@ -13,6 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--width", type=int, default=4)
     parser.add_argument("--games", type=int, default=10, help="games per ordered bot pairing")
     parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument("--progress", type=int, default=0, help="print progress every N games")
     parser.add_argument(
         "--bots",
         default="random,first",
@@ -32,6 +33,7 @@ def main() -> int:
         width=args.width,
         games_per_pair=args.games,
         seed=args.seed,
+        progress_interval=args.progress,
     )
     write_results(
         args.output_dir,

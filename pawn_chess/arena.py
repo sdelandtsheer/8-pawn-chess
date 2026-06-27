@@ -5,11 +5,22 @@ from __future__ import annotations
 import csv
 import json
 import random
+import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import TextIO
 
 from pawn_chess.bots import Bot, choose_or_first
-from pawn_chess.rules import BLACK, WHITE, initial_state, make_move, move_coord, terminal_winner
+from pawn_chess.rules import (
+    BLACK,
+    WHITE,
+    Move,
+    State,
+    initial_state,
+    make_move,
+    move_coord,
+    terminal_winner,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +64,7 @@ def play_game(
     game_id: int,
     seed: int,
     max_plies: int = 256,
+    decision_cache: dict[tuple[str, State, int], Move] | None = None,
 ) -> GameRecord:
     rng = random.Random(seed)
     state = initial_state(width)
@@ -66,7 +78,7 @@ def play_game(
             return _record(game_id, white_bot, black_bot, BLACK, ply, "max_plies", played)
 
         bot = white_bot if state.turn == WHITE else black_bot
-        move = choose_or_first(bot, state, width, rng)
+        move = _choose_move_cached(bot, state, width, rng, decision_cache)
         if move is None:
             return _record(
                 game_id,
@@ -89,9 +101,13 @@ def round_robin(
     width: int,
     games_per_pair: int,
     seed: int,
+    progress_interval: int = 0,
+    progress_stream: TextIO = sys.stderr,
 ) -> tuple[list[GameRecord], list[BotStats]]:
     games: list[GameRecord] = []
+    decision_cache: dict[tuple[str, State, int], Move] = {}
     game_id = 0
+    total_games = len(bots) * len(bots) * games_per_pair
     for white in bots:
         for black in bots:
             for repeat in range(games_per_pair):
@@ -103,9 +119,17 @@ def round_robin(
                         width=width,
                         game_id=game_id,
                         seed=game_seed,
+                        decision_cache=decision_cache,
                     )
                 )
                 game_id += 1
+                if progress_interval and game_id % progress_interval == 0:
+                    print(
+                        f"games_completed={game_id}/{total_games} "
+                        f"decision_cache={len(decision_cache)}",
+                        file=progress_stream,
+                        flush=True,
+                    )
     return games, summarize(games)
 
 
@@ -191,3 +215,24 @@ def _record(
         reason=reason,
         moves=" ".join(played),
     )
+
+
+def _choose_move_cached(
+    bot: Bot,
+    state: State,
+    width: int,
+    rng: random.Random,
+    decision_cache: dict[tuple[str, State, int], Move] | None,
+) -> Move | None:
+    if not getattr(bot, "deterministic", True) or decision_cache is None:
+        return choose_or_first(bot, state, width, rng)
+
+    key = (bot.name, state, width)
+    cached = decision_cache.get(key)
+    if cached is not None:
+        return cached
+
+    move = choose_or_first(bot, state, width, rng)
+    if move is not None:
+        decision_cache[key] = move
+    return move

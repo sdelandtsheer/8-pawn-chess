@@ -14,6 +14,12 @@ class ArenaTests(unittest.TestCase):
         self.assertEqual(games_a, games_b)
         self.assertEqual([item.win_rate for item in stats_a], [item.win_rate for item in stats_b])
 
+    def test_progress_does_not_change_results(self) -> None:
+        bots = [RandomBot(), FirstLegalBot()]
+        games_a, _ = round_robin(bots, width=4, games_per_pair=2, seed=9)
+        games_b, _ = round_robin(bots, width=4, games_per_pair=2, seed=9, progress_interval=3)
+        self.assertEqual(games_a, games_b)
+
     def test_writes_results(self) -> None:
         bots = [RandomBot(), FirstLegalBot()]
         games, stats = round_robin(bots, width=4, games_per_pair=1, seed=3)
