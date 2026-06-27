@@ -93,6 +93,10 @@ class StrategyBuilder:
         engine_side: int,
         use_symmetry: bool = True,
         progress_interval: int = 0,
+        max_entered_states: int | None = None,
+        trace_depth: int = -1,
+        log_moves: bool = False,
+        progress_path_depth: int = 8,
         progress_stream=sys.stderr,
     ) -> None:
         validate_board_width(board_width)
@@ -102,7 +106,11 @@ class StrategyBuilder:
             board_width=board_width,
             use_symmetry=use_symmetry,
             prune=True,
-            progress_interval=0,
+            progress_interval=progress_interval,
+            max_entered_states=max_entered_states,
+            trace_depth=trace_depth,
+            log_moves=log_moves,
+            progress_path_depth=progress_path_depth,
             progress_stream=progress_stream,
         )
         self.entries: dict[int, StrategyEntry] = {}
@@ -285,6 +293,10 @@ def export_strategy(
     use_symmetry: bool = True,
     write_jsonl: bool = False,
     progress_interval: int = 0,
+    max_entered_states: int | None = None,
+    trace_depth: int = -1,
+    log_moves: bool = False,
+    progress_path_depth: int = 8,
     progress_stream=sys.stderr,
 ) -> StrategyMetadata:
     side_name = _side_name(engine_side)
@@ -293,6 +305,10 @@ def export_strategy(
         engine_side=engine_side,
         use_symmetry=use_symmetry,
         progress_interval=progress_interval,
+        max_entered_states=max_entered_states,
+        trace_depth=trace_depth,
+        log_moves=log_moves,
+        progress_path_depth=progress_path_depth,
         progress_stream=progress_stream,
     )
     started = time.perf_counter()
@@ -393,6 +409,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-symmetry", action="store_true")
     parser.add_argument("--jsonl", action="store_true")
     parser.add_argument("--progress", type=int, default=10_000)
+    parser.add_argument(
+        "--max-entered",
+        type=int,
+        default=None,
+        help="stop after entering this many uncached solver states",
+    )
+    parser.add_argument(
+        "--trace-depth",
+        type=int,
+        default=-1,
+        help="print tree state and legal moves down to this depth; -1 disables tracing",
+    )
+    parser.add_argument(
+        "--log-moves",
+        action="store_true",
+        help="print each move considered within trace depth",
+    )
+    parser.add_argument(
+        "--progress-path-depth",
+        type=int,
+        default=8,
+        help="include this many current-path plies in solver progress output",
+    )
     parser.add_argument("--log-file", type=Path, default=None)
     return parser
 
@@ -417,6 +456,10 @@ def main(argv: list[str] | None = None) -> int:
                 use_symmetry=not args.no_symmetry,
                 write_jsonl=args.jsonl,
                 progress_interval=args.progress,
+                max_entered_states=args.max_entered,
+                trace_depth=args.trace_depth,
+                log_moves=args.log_moves,
+                progress_path_depth=args.progress_path_depth,
                 progress_stream=progress_stream,
             )
             metadatas.append(asdict(metadata))

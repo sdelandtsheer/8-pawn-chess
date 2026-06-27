@@ -20,6 +20,19 @@ Command:
 py export_strategy.py --board-width 4 --engine-side both --output-dir dist/w4-strategy --progress 10000 --log-file dist/w4-strategy/export.log
 ```
 
+For width 6 and larger, the exporter can also expose compact-solver progress:
+
+```powershell
+py export_strategy.py --board-width 6 --engine-side both --output-dir dist/w6-strategy --progress 100000 --progress-path-depth 20 --log-file dist/w6-strategy/export.log
+```
+
+Useful diagnostic flags:
+
+- `--max-entered`: stop after a bounded number of uncached solver states.
+- `--trace-depth`: print tree states and legal moves down to a shallow depth.
+- `--log-moves`: include the move being considered inside the traced depth.
+- `--progress-path-depth`: include this many plies in periodic progress lines.
+
 Result:
 
 ```text

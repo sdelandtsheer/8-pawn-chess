@@ -161,6 +161,18 @@ Export both engine sides:
 py export_strategy.py --board-width 4 --engine-side both --output-dir dist/w4-strategy --progress 10000 --log-file dist/w4-strategy/export.log
 ```
 
+For width 6 diagnostics and solving, keep solver-level path logging enabled:
+
+```powershell
+py export_strategy.py --board-width 6 --engine-side both --output-dir dist/w6-strategy --progress 100000 --progress-path-depth 20 --log-file dist/w6-strategy/export.log
+```
+
+For a bounded diagnostic run:
+
+```powershell
+py export_strategy.py --board-width 6 --engine-side white --output-dir dist/w6-strategy-diagnostic --progress 100000 --max-entered 1000000 --trace-depth 1 --log-moves --progress-path-depth 20 --log-file dist/w6-strategy-diagnostic/export.log
+```
+
 Width 4 validation:
 
 - Engine as White: `10,524` entries, `242,068` byte binary, root move `b2b4`.
