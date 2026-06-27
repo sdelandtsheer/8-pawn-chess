@@ -14,6 +14,13 @@
   const FLAG_EN_PASSANT = 4;
   const FLAG_WINNING = 8;
   const FILES = "abcdefgh";
+  const STRATEGY_MAGIC = "PWST";
+  const STRATEGY_HEADER_BYTES = 16;
+  const STRATEGY_KEY_BYTES = 17;
+  const STRATEGY_RECORD_BYTES = 23;
+  const STRATEGY_NO_MOVE = 0xffff;
+  const STRATEGY_FLAG_ENGINE_TURN = 1;
+  const STRATEGY_FLAG_TERMINAL = 2;
 
   function assertBoardWidth(boardWidth) {
     if (![2, 4, 6, 8].includes(boardWidth)) {
@@ -326,6 +333,78 @@
     return table;
   }
 
+  function keyFromLittleEndianBytes(bytes, offset, length) {
+    let value = 0n;
+
+    for (let i = length - 1; i >= 0; i--) {
+      value = (value << 8n) | BigInt(bytes[offset + i]);
+    }
+
+    return value.toString(16);
+  }
+
+  function parseStrategyBinary(arrayBuffer, progressCallback) {
+    const bytes = new Uint8Array(arrayBuffer);
+
+    if (bytes.length < STRATEGY_HEADER_BYTES) {
+      throw new Error("Strategy file is too short.");
+    }
+
+    const magic = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    if (magic !== STRATEGY_MAGIC) {
+      throw new Error("Invalid strategy magic: " + magic);
+    }
+
+    const version = bytes[4];
+    const boardWidth = bytes[5];
+    const engineSideCode = bytes[6];
+    const recordBytes = bytes[7];
+
+    if (version !== 1) {
+      throw new Error("Unsupported strategy version: " + version);
+    }
+
+    if (recordBytes !== STRATEGY_RECORD_BYTES) {
+      throw new Error("Unsupported strategy record size: " + recordBytes);
+    }
+
+    const view = new DataView(arrayBuffer);
+    const rows = Number(view.getBigUint64(8, true));
+    const expectedBytes = STRATEGY_HEADER_BYTES + rows * recordBytes;
+
+    if (bytes.length !== expectedBytes) {
+      throw new Error("Strategy size mismatch: expected " + expectedBytes + ", got " + bytes.length);
+    }
+
+    const table = new Map();
+
+    for (let row = 0; row < rows; row++) {
+      const offset = STRATEGY_HEADER_BYTES + row * recordBytes;
+      const key = keyFromLittleEndianBytes(bytes, offset, STRATEGY_KEY_BYTES);
+      const dataOffset = offset + STRATEGY_KEY_BYTES;
+      const bestMove = view.getUint16(dataOffset + 3, true);
+      const flags = bytes[dataOffset + 5];
+
+      table.set(key, {
+        outcome: view.getInt8(dataOffset),
+        dtm: view.getUint16(dataOffset + 1, true),
+        bestMove: bestMove === STRATEGY_NO_MOVE ? -1 : bestMove,
+        engineTurn: Boolean(flags & STRATEGY_FLAG_ENGINE_TURN),
+        terminal: Boolean(flags & STRATEGY_FLAG_TERMINAL)
+      });
+
+      if (progressCallback && table.size % 50000 === 0) {
+        progressCallback(table.size);
+      }
+    }
+
+    table.boardWidth = boardWidth;
+    table.engineSide = engineSideCode === 0 ? WHITE : BLACK;
+    table.version = version;
+
+    return table;
+  }
+
   async function blobToTextMaybeGzip(blob, fileName) {
     const bytes = new Uint8Array(await blob.arrayBuffer());
     const isGzip =
@@ -361,9 +440,33 @@
     return parseJsonlTablebase(text, progressCallback);
   }
 
+  async function fetchStrategy(url, progressCallback) {
+    const response = await fetch(url, { cache: "force-cache" });
+    if (!response.ok) {
+      throw new Error("Failed to load strategy: HTTP " + response.status);
+    }
+
+    return parseStrategyBinary(await response.arrayBuffer(), progressCallback);
+  }
+
   async function loadTablebaseFile(file, progressCallback) {
     const text = await blobToTextMaybeGzip(file, file.name);
     return parseJsonlTablebase(text, progressCallback);
+  }
+
+  async function loadStrategyFile(file, progressCallback) {
+    return parseStrategyBinary(await file.arrayBuffer(), progressCallback);
+  }
+
+  function parseStrategyBase64(base64, progressCallback) {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    return parseStrategyBinary(bytes.buffer, progressCallback);
   }
 
   return {
@@ -376,13 +479,17 @@
     decodeMove,
     encodeMove,
     fetchTablebase,
+    fetchStrategy,
     generateLegalMoves,
     initialState,
     loadTablebaseFile,
+    loadStrategyFile,
     makeMove,
     moveCoord,
     normalizeEpSquare,
     parseJsonlTablebase,
+    parseStrategyBase64,
+    parseStrategyBinary,
     squareName,
     stateKey,
     tablebaseToUiSquare,

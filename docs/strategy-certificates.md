@@ -53,6 +53,31 @@ engine black checked entries: 10995
 engine black checked edges: 13609
 ```
 
+## Browser Integration
+
+Build the self-contained Wix page from the generated width 4 strategy binaries:
+
+```powershell
+py browser/build_wix_strategy_html.py
+```
+
+The output is:
+
+```text
+browser/wix_width4_strategy.html
+```
+
+If `dist/w4-strategy/strategy_white.bin` and `strategy_black.bin` exist, the
+builder embeds both certificates as base64 constants, so the HTML can be pasted
+into Wix without hosting a separate tablebase file.
+
+Smoke tests:
+
+```powershell
+node tests/strategy_html_smoke.js
+node browser/verify_width4_strategy.js
+```
+
 ## Binary Format
 
 Header:

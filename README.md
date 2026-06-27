@@ -170,6 +170,23 @@ Width 4 validation:
 
 ## Browser Width 4
 
+Strategy-certificate browser, preferred for Wix because it is self-contained and
+does not need to host the full width 4 tablebase:
+
+```powershell
+py browser/build_wix_strategy_html.py
+node tests/strategy_html_smoke.js
+node browser/verify_width4_strategy.js
+```
+
+Paste-ready file:
+
+```text
+browser/wix_width4_strategy.html
+```
+
+Full-tablebase browser, kept as a debugging/reference path:
+
 Generate the paste-ready Wix HTML:
 
 ```powershell
