@@ -160,6 +160,19 @@ The `zugzwang` bot follows this rule as a priority ordering instead of a blended
 weighted score. Width-4 testing showed this is stronger than the broader
 `principle` bot.
 
+The experimental `breaktempo` bot builds on `zugzwang`:
+
+- it first uses shallow proof search to catch short forced wins and losses;
+- it counts safe tempi for both sides;
+- when tempo is favorable, it prefers quiet moves that preserve flexibility;
+- when tempo or passed-pawn races are unfavorable, it prefers pawn breaks;
+- it ignores material as a primary objective;
+- it chooses randomly among candidate moves with identical scores.
+
+This is intentionally not a full solver. Its purpose is to test the practical
+human-facing idea: play the zugzwang/tempo game by default, but break the pawn
+structure when the quiet tempo race is already going wrong.
+
 ## Mirror Copycat Finding
 
 The natural Black idea "copy White's move on the mirrored file/rank" is not a

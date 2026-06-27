@@ -10,9 +10,9 @@ class Width8HtmlTests(unittest.TestCase):
     def test_width8_html_is_self_contained_zugzwang_page(self) -> None:
         html = Path("browser/wix_width8_zugzwang.html").read_text(encoding="utf-8")
         self.assertIn("const WIDTH = 8;", html)
-        self.assertIn("function chooseZugzwangMove", html)
+        self.assertIn("function chooseBreakTempoMove", html)
         self.assertIn("function legalMoves", html)
-        self.assertIn("Zugzwang", html)
+        self.assertIn("Break tempo", html)
         self.assertNotIn("TABLEBASE_URL", html)
 
     @unittest.skipIf(shutil.which("node") is None, "node is required for HTML JS syntax check")

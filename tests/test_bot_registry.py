@@ -11,6 +11,7 @@ class BotRegistryTests(unittest.TestCase):
             set(all_bot_names()),
             {
                 "advance",
+                "breaktempo",
                 "capture",
                 "center",
                 "double",

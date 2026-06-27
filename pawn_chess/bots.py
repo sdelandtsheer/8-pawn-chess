@@ -24,6 +24,8 @@ from pawn_chess.rules import (
     terminal_winner,
 )
 
+_PROOF_CACHE: dict[tuple[State, int, int], tuple[int, int]] = {}
+
 
 class Bot(Protocol):
     name: str
@@ -297,6 +299,52 @@ class ZugzwangBot:
 
 
 @dataclass(frozen=True, slots=True)
+class BreakTempoBot:
+    name: str = "breaktempo"
+    deterministic: bool = False
+    search_depth: int = 2
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        side = state.turn
+        memo: dict[tuple[State, int], tuple[int, int]] = {}
+        proven_wins: list[tuple[int, Move]] = []
+        proven_losses: list[tuple[int, Move]] = []
+        default_candidates: list[tuple[tuple[int, ...], Move]] = []
+
+        for move in moves:
+            child = make_move(state, move, width)
+            proof_outcome, proof_dtm = _proof_search(
+                child,
+                width,
+                self.search_depth - 1,
+                memo,
+            )
+            if proof_outcome == -1:
+                proven_wins.append((proof_dtm + 1, move))
+            elif proof_outcome == 1:
+                proven_losses.append((proof_dtm + 1, move))
+            else:
+                default_candidates.append((_breaktempo_key(state, move, width, side), move))
+
+        if proven_wins:
+            best_dtm = min(dtm for dtm, _ in proven_wins)
+            return rng.choice([move for dtm, move in proven_wins if dtm == best_dtm])
+
+        if default_candidates:
+            best_key = max(key for key, _ in default_candidates)
+            return rng.choice([move for key, move in default_candidates if key == best_key])
+
+        best_delay = max(dtm for dtm, _ in proven_losses)
+        return rng.choice([move for dtm, move in proven_losses if dtm == best_delay])
+
+
+@dataclass(frozen=True, slots=True)
 class MirrorBot:
     name: str = "mirror"
 
@@ -322,6 +370,7 @@ class MirrorBot:
 def bot_registry() -> dict[str, Bot]:
     return {
         "advance": AdvanceBot(),
+        "breaktempo": BreakTempoBot(),
         "capture": CaptureBot(),
         "center": CenterBot(),
         "double": DoublePushBot(),
@@ -492,6 +541,166 @@ def _zugzwang_key(state: State, move: Move, width: int, side: str) -> tuple[int,
         -move.from_square,
         -move.to_square,
     )
+
+
+def _breaktempo_key(state: State, move: Move, width: int, side: str) -> tuple[int, ...]:
+    child = make_move(state, move, width)
+    winner = terminal_winner(child, width)
+    zugzwang_key = _zugzwang_key(state, move, width, side)
+    if winner == side:
+        return (10, -_promotion_distance_after_move(move, side), 0, *zugzwang_key)
+    if winner == opposite(side):
+        return (-10, 0, 0, *zugzwang_key)
+
+    opponent_immediate_wins = sum(1 for reply in legal_moves(child, width) if reply.winning)
+    our_unstoppable = _unstoppable_count(child, side, width)
+    opponent_unstoppable = _unstoppable_count(child, opposite(side), width)
+    our_safe = _safe_move_count(child, side, width)
+    opponent_safe = _safe_move_count(child, opposite(side), width)
+    tempo_delta = our_safe - opponent_safe
+    break_score = _break_score(state, child, move, width, side)
+
+    if opponent_immediate_wins:
+        return (
+            -2,
+            -opponent_immediate_wins,
+            our_unstoppable,
+            break_score,
+            -opponent_safe,
+            our_safe,
+            *zugzwang_key,
+        )
+
+    if our_unstoppable > opponent_unstoppable:
+        return (
+            8,
+            our_unstoppable - opponent_unstoppable,
+            -_best_distance(child, side),
+            -opponent_safe,
+            our_safe,
+            *zugzwang_key,
+        )
+
+    if opponent_unstoppable > our_unstoppable:
+        return (
+            -1,
+            break_score,
+            our_unstoppable,
+            -opponent_unstoppable,
+            -opponent_safe,
+            our_safe,
+            *zugzwang_key,
+        )
+
+    if tempo_delta >= 0:
+        return (
+            5,
+            -opponent_safe,
+            our_safe,
+            tempo_delta,
+            -_quiet_breakiness(move),
+            -_best_distance(child, side),
+            *zugzwang_key,
+        )
+
+    return (
+        3,
+        break_score,
+        -opponent_safe,
+        our_safe,
+        tempo_delta,
+        -_best_distance(child, side),
+        *zugzwang_key,
+    )
+
+
+def _proof_search(
+    state: State,
+    width: int,
+    depth: int,
+    memo: dict[tuple[State, int], tuple[int, int]],
+) -> tuple[int, int]:
+    global_key = (state, width, depth)
+    global_cached = _PROOF_CACHE.get(global_key)
+    if global_cached is not None:
+        return global_cached
+
+    winner = terminal_winner(state, width)
+    if winner == state.turn:
+        result = (1, 0)
+        _PROOF_CACHE[global_key] = result
+        return result
+    if winner == opposite(state.turn):
+        result = (-1, 0)
+        _PROOF_CACHE[global_key] = result
+        return result
+    if depth <= 0:
+        result = (0, 0)
+        _PROOF_CACHE[global_key] = result
+        return result
+
+    key = (state, depth)
+    cached = memo.get(key)
+    if cached is not None:
+        return cached
+
+    unknown = False
+    longest_loss = -1
+    for move in _ordered_for_proof(state, width):
+        child_outcome, child_dtm = _proof_search(
+            make_move(state, move, width), width, depth - 1, memo
+        )
+        current_dtm = child_dtm + 1
+        if child_outcome == -1:
+            result = (1, current_dtm)
+            memo[key] = result
+            _PROOF_CACHE[global_key] = result
+            return result
+        if child_outcome == 0:
+            unknown = True
+        elif child_outcome == 1:
+            longest_loss = max(longest_loss, current_dtm)
+
+    result = (0, 0) if unknown else (-1, longest_loss)
+    memo[key] = result
+    _PROOF_CACHE[global_key] = result
+    return result
+
+
+def _ordered_for_proof(state: State, width: int) -> tuple[Move, ...]:
+    side = state.turn
+    return tuple(
+        sorted(
+            legal_moves(state, width),
+            key=lambda move: _breaktempo_key(state, move, width, side),
+            reverse=True,
+        )
+    )
+
+
+def _unstoppable_count(state: State, side: str, width: int) -> int:
+    return sum(
+        1
+        for square in _iter_side(state, side)
+        if _creates_passed_pawn(state, side, square, width)
+        and _path_clear(state, side, square, width)
+    )
+
+
+def _break_score(state: State, child: State, move: Move, width: int, side: str) -> int:
+    del state
+    score = 0
+    score += 8 * int(_creates_passed_pawn(child, side, move.to_square, width))
+    score += 5 * int(_path_clear(child, side, move.to_square, width))
+    score += 4 * int(move.capture)
+    score += 6 * int(move.en_passant)
+    score += 2 * _advance_delta(move, side)
+    score -= 5 * int(_double_is_en_passant_exposed(child, move, side, width))
+    return score
+
+
+def _quiet_breakiness(move: Move) -> int:
+    return int(move.capture) + int(move.en_passant) + int(move.double)
 
 
 def _restores_vertical_mirror(state: State, width: int) -> bool:

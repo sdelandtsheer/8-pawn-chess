@@ -14,7 +14,7 @@
     <div id="status">Choisis ta couleur.</div>
     <div id="board" aria-label="Echiquier"></div>
     <div class="bar">
-      <span>Zugzwang</span>
+      <span>Break tempo</span>
       <span id="last-move">-</span>
     </div>
   </main>
@@ -530,7 +530,7 @@
 
     const opponentReplies = legalMoves(child);
     let allowsImmediateLoss = false;
-    const opponentSafeReplies = [];
+    let opponentSafeCount = 0;
     let worstOurFollowupSafeCount = 99;
 
     for (const reply of opponentReplies) {
@@ -540,7 +540,7 @@
         continue;
       }
       if (legalMoves(grandchild).some(function (answer) { return answer.winning; })) continue;
-      opponentSafeReplies.push(reply);
+      opponentSafeCount++;
       worstOurFollowupSafeCount = Math.min(
         worstOurFollowupSafeCount,
         safeMoveCount(grandchild, side)
@@ -549,27 +549,150 @@
 
     if (worstOurFollowupSafeCount === 99) worstOurFollowupSafeCount = 0;
 
-    const opponentSafeCount = opponentSafeReplies.length;
-    const forcingBonus = opponentSafeCount === 0 ? 1 : 0;
-    const passerBonus = createsPassedPawn(child, side, move.to) ? 1 : 0;
-    const clearPathBonus = pathClear(child, side, move.to) ? 1 : 0;
-    const tacticalBonus = 2 * Number(move.capture) + 3 * Number(move.enPassant);
-    const doublePenalty = Number(move.double) + 3 * Number(doubleIsEnPassantExposed(child, move, side));
-
     return [
       2 - Number(allowsImmediateLoss),
       -opponentSafeCount,
       worstOurFollowupSafeCount,
       safeMoveCount(child, side),
-      forcingBonus,
-      passerBonus,
-      clearPathBonus,
-      tacticalBonus,
+      Number(opponentSafeCount === 0),
+      Number(createsPassedPawn(child, side, move.to)),
+      Number(pathClear(child, side, move.to)),
+      2 * Number(move.capture) + 3 * Number(move.enPassant),
       advanceDelta(move, side),
-      -doublePenalty,
+      -(Number(move.double) + 3 * Number(doubleIsEnPassantExposed(child, move, side))),
       -move.from,
       -move.to
     ];
+  }
+
+  function breakTempoKey(s, move, side) {
+    const child = makeMove(s, move);
+    const winner = terminalWinner(child);
+    const zug = zugzwangKey(s, move, side);
+    if (winner === side) {
+      return [10, -promotionDistance(move, side), 0].concat(zug);
+    }
+    if (winner === opposite(side)) {
+      return [-10, 0, 0].concat(zug);
+    }
+
+    const opponentImmediateWins = legalMoves(child).filter(function (reply) {
+      return reply.winning;
+    }).length;
+    const ourUnstoppable = unstoppableCount(child, side);
+    const opponentUnstoppable = unstoppableCount(child, opposite(side));
+    const ourSafe = safeMoveCount(child, side);
+    const opponentSafe = safeMoveCount(child, opposite(side));
+    const tempoDelta = ourSafe - opponentSafe;
+    const breakScore = pawnBreakScore(child, move, side);
+
+    if (opponentImmediateWins) {
+      return [-2, -opponentImmediateWins, ourUnstoppable, breakScore, -opponentSafe, ourSafe].concat(zug);
+    }
+
+    if (ourUnstoppable > opponentUnstoppable) {
+      return [
+        8,
+        ourUnstoppable - opponentUnstoppable,
+        -bestDistance(child, side),
+        -opponentSafe,
+        ourSafe
+      ].concat(zug);
+    }
+
+    if (opponentUnstoppable > ourUnstoppable) {
+      return [
+        -1,
+        breakScore,
+        ourUnstoppable,
+        -opponentUnstoppable,
+        -opponentSafe,
+        ourSafe
+      ].concat(zug);
+    }
+
+    if (tempoDelta >= 0) {
+      return [
+        5,
+        -opponentSafe,
+        ourSafe,
+        tempoDelta,
+        -quietBreakiness(move),
+        -bestDistance(child, side)
+      ].concat(zug);
+    }
+
+    return [3, breakScore, -opponentSafe, ourSafe, tempoDelta, -bestDistance(child, side)].concat(zug);
+  }
+
+  function unstoppableCount(s, side) {
+    let count = 0;
+    iterBits(pawns(s, side), function (square) {
+      if (createsPassedPawn(s, side, square) && pathClear(s, side, square)) count++;
+    });
+    return count;
+  }
+
+  function bestDistance(s, side) {
+    let best = 8;
+    iterBits(pawns(s, side), function (square) {
+      best = Math.min(best, side === WHITE ? 7 - rankOf(square) : rankOf(square));
+    });
+    return best;
+  }
+
+  function pawnBreakScore(child, move, side) {
+    let score = 0;
+    score += 8 * Number(createsPassedPawn(child, side, move.to));
+    score += 5 * Number(pathClear(child, side, move.to));
+    score += 4 * Number(move.capture);
+    score += 6 * Number(move.enPassant);
+    score += 2 * advanceDelta(move, side);
+    score -= 5 * Number(doubleIsEnPassantExposed(child, move, side));
+    return score;
+  }
+
+  function quietBreakiness(move) {
+    return Number(move.capture) + Number(move.enPassant) + Number(move.double);
+  }
+
+  function stateKey(s, depth) {
+    return s.white.toString(16) + "|" + s.black.toString(16) + "|" + s.turn + "|" + s.epSquare + "|" + depth;
+  }
+
+  function proofSearch(s, depth, memo) {
+    const winner = terminalWinner(s);
+    if (winner === s.turn) return [1, 0];
+    if (winner === opposite(s.turn)) return [-1, 0];
+    if (depth <= 0) return [0, 0];
+
+    const key = stateKey(s, depth);
+    if (memo.has(key)) return memo.get(key);
+
+    let unknown = false;
+    let longestLoss = -1;
+    const ordered = legalMoves(s).slice().sort(function (a, b) {
+      return compareKeys(breakTempoKey(s, b, s.turn), breakTempoKey(s, a, s.turn));
+    });
+
+    for (const move of ordered) {
+      const child = makeMove(s, move);
+      const result = proofSearch(child, depth - 1, memo);
+      const currentDtm = result[1] + 1;
+      if (result[0] === -1) {
+        memo.set(key, [1, currentDtm]);
+        return [1, currentDtm];
+      }
+      if (result[0] === 0) {
+        unknown = true;
+      } else if (result[0] === 1) {
+        longestLoss = Math.max(longestLoss, currentDtm);
+      }
+    }
+
+    const finalResult = unknown ? [0, 0] : [-1, longestLoss];
+    memo.set(key, finalResult);
+    return finalResult;
   }
 
   function compareKeys(a, b) {
@@ -582,20 +705,48 @@
     return 0;
   }
 
-  function chooseZugzwangMove(s) {
+  function randomChoice(items) {
+    return items[Math.floor(Math.random() * items.length)];
+  }
+
+  function chooseBreakTempoMove(s) {
     const moves = legalMoves(s);
     if (!moves.length) return null;
     const side = s.turn;
-    let bestMove = moves[0];
-    let bestKey = zugzwangKey(s, bestMove, side);
-    for (let i = 1; i < moves.length; i++) {
-      const key = zugzwangKey(s, moves[i], side);
-      if (compareKeys(key, bestKey) > 0) {
-        bestMove = moves[i];
-        bestKey = key;
+    const memo = new Map();
+    const provenWins = [];
+    const provenLosses = [];
+    const defaults = [];
+
+    for (const move of moves) {
+      const child = makeMove(s, move);
+      const proof = proofSearch(child, 1, memo);
+      if (proof[0] === -1) {
+        provenWins.push({ dtm: proof[1] + 1, move: move });
+      } else if (proof[0] === 1) {
+        provenLosses.push({ dtm: proof[1] + 1, move: move });
+      } else {
+        defaults.push({ key: breakTempoKey(s, move, side), move: move });
       }
     }
-    return bestMove;
+
+    if (provenWins.length) {
+      const bestDtm = Math.min.apply(null, provenWins.map(function (item) { return item.dtm; }));
+      return randomChoice(provenWins.filter(function (item) { return item.dtm === bestDtm; })).move;
+    }
+
+    if (defaults.length) {
+      let bestKey = defaults[0].key;
+      for (const item of defaults) {
+        if (compareKeys(item.key, bestKey) > 0) bestKey = item.key;
+      }
+      return randomChoice(defaults.filter(function (item) {
+        return compareKeys(item.key, bestKey) === 0;
+      })).move;
+    }
+
+    const bestDelay = Math.max.apply(null, provenLosses.map(function (item) { return item.dtm; }));
+    return randomChoice(provenLosses.filter(function (item) { return item.dtm === bestDelay; })).move;
   }
 
   function moveText(move) {
@@ -667,7 +818,7 @@
 
   function botMove() {
     if (locked || state.turn !== botSide) return;
-    const move = chooseZugzwangMove(state);
+    const move = chooseBreakTempoMove(state);
     if (!move) {
       updateStatus("Gagne.");
       locked = true;

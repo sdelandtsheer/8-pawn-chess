@@ -10,7 +10,7 @@ Main deliverable:
 browser/wix_width8_zugzwang.html
 ```
 
-It is a self-contained width-8 browser game using the `zugzwang` bot. Paste the
+It is a self-contained width-8 browser game using the `breaktempo` bot. Paste the
 whole file into a Wix HTML embed.
 
 Previous width-4 exact strategy page:
@@ -21,8 +21,11 @@ browser/wix_width4_strategy.html
 
 ## Bot Idea
 
-The current best practical bot is `zugzwang`. It does not use a full tablebase.
-It prioritizes:
+The current practical browser bot is `breaktempo`. It does not use a full
+tablebase. It starts from the `zugzwang` ordering and adds shallow proof search,
+passed-pawn race checks, and random choice among exactly equal candidates.
+
+The key baseline remains `zugzwang`, which prioritizes:
 
 - immediate wins;
 - avoiding immediate losses;
@@ -57,3 +60,11 @@ reports/width4-benchmark-10x/summary.json
 ```
 
 Raw per-game CSV files are ignored to keep the repo small.
+
+Run the fresh multi-width tournament requested for the current bot set:
+
+```powershell
+py evaluate_bots.py --width 4 --games 10 --bots all --seed 20260628 --progress 500 --output-dir reports/fresh-round-robin-w4
+py evaluate_bots.py --width 6 --games 10 --bots all --seed 20260628 --progress 500 --output-dir reports/fresh-round-robin-w6
+py evaluate_bots.py --width 8 --games 10 --bots all --seed 20260628 --progress 500 --output-dir reports/fresh-round-robin-w8
+```
