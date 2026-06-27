@@ -135,7 +135,8 @@ forced races, reserve tempi, opposition-like blocking, and fatal pawn breaks.
 
 ## Practical Bot Plan
 
-- Keep a pure browser rules engine.
+- Keep a pure browser rules engine. The current browser implementation is
+  `browser/wix_width8_zugzwang.html`.
 - Add tactical detectors: immediate win, immediate loss, en passant danger,
   passed-pawn race, necessary blocker.
 - Add move ordering based on the principles above.
@@ -152,3 +153,9 @@ The bot should not ask "Which move looks good?" It should ask:
 Which moves do not lose, and among those, which one gives the opponent the
 fewest non-losing replies?
 ```
+
+## Current Implementation Note
+
+The `zugzwang` bot follows this rule as a priority ordering instead of a blended
+weighted score. Width-4 testing showed this is stronger than the broader
+`principle` bot.

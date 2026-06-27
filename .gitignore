@@ -9,5 +9,6 @@ htmlcov/
 venv/
 dist/
 results/
+reports/**/games.csv
 build/
 *.egg-info/

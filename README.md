@@ -1,25 +1,59 @@
 # 8-Pawn Chess Bot
 
-This repo is now reset around the working Wix width-4 implementation and the
-next goal: build a strong practical bot for the full pawn-only game.
+Pawn-only chess experiments and a standalone browser bot.
 
-## Current Working File
+## Playable HTML
+
+Main deliverable:
+
+```text
+browser/wix_width8_zugzwang.html
+```
+
+It is a self-contained width-8 browser game using the `zugzwang` bot. Paste the
+whole file into a Wix HTML embed.
+
+Previous width-4 exact strategy page:
 
 ```text
 browser/wix_width4_strategy.html
 ```
 
-That file is self-contained and can be pasted into Wix.
+## Bot Idea
 
-## Next Direction
+The current best practical bot is `zugzwang`. It does not use a full tablebase.
+It prioritizes:
 
-The previous full tablebase approach solved width 4 but did not scale cleanly to
-width 6 in Python. The next implementation should be a strong bot based on game
-principles, tactical proof search, and zugzwang/tempo accounting rather than a
-complete offline tablebase.
+- immediate wins;
+- avoiding immediate losses;
+- minimizing the opponent's safe replies;
+- preserving our own safe replies;
+- using passed pawns, captures, clear paths, and progress only as tie-breakers.
 
-Start from:
+This came from the width-4 benchmark where direct safe-reply minimization beat a
+broader weighted evaluation.
+
+## Local Checks
+
+```powershell
+py -m unittest discover -s tests
+py -m ruff check .
+py -m ruff format --check .
+```
+
+## Benchmark
+
+Run a width-4 bot tournament:
+
+```powershell
+py evaluate_bots.py --width 4 --games 200 --bots all --seed 20260628 --progress 2000 --output-dir reports/width4-benchmark-10x
+```
+
+Latest summary:
 
 ```text
-BOT_PRINCIPLES.md
+reports/width4-benchmark-10x/README.md
+reports/width4-benchmark-10x/summary.json
 ```
+
+Raw per-game CSV files are ignored to keep the repo small.
