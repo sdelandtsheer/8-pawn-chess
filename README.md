@@ -149,6 +149,25 @@ The binary tablebase format is fixed-width and uses standard 8x8 keys:
 - 16-byte header: `PWTB`, version, board width, key bytes, record bytes, row count.
 - Each row is 22 bytes: 17 little-endian key bytes, signed outcome byte, 16-bit DTM, 16-bit best move.
 
+## Strategy Certificate Export
+
+A strategy certificate is an exact browser-play book, not a full tablebase. It
+covers every state reachable when the human may choose any legal move and the
+engine follows one certified exact reply at each engine turn.
+
+Export both engine sides:
+
+```powershell
+py export_strategy.py --board-width 4 --engine-side both --output-dir dist/w4-strategy --progress 10000 --log-file dist/w4-strategy/export.log
+```
+
+Width 4 validation:
+
+- Engine as White: `10,524` entries, `242,068` byte binary, root move `b2b4`.
+- Engine as Black: `10,995` entries, `252,901` byte binary, root is a human-turn node.
+- Both strategies verify all human replies and all engine DTM edges.
+- Full width 4 tablebase binary is `22,736,796` bytes, so the strategy certificate is roughly two orders of magnitude smaller.
+
 ## Browser Width 4
 
 Generate the paste-ready Wix HTML:

@@ -1,0 +1,78 @@
+# Strategy Certificates
+
+A strategy certificate is an exact play book for one engine side. It is not a
+full tablebase.
+
+It covers:
+
+- every legal human reply from every reachable human-turn state;
+- exactly one certified engine reply from every reachable engine-turn state;
+- terminal states reached by either side.
+
+This is enough for browser play because the browser only needs to avoid misses
+along games where the engine follows the certified strategy.
+
+## Width 4 Check
+
+Command:
+
+```powershell
+py export_strategy.py --board-width 4 --engine-side both --output-dir dist/w4-strategy --progress 10000 --log-file dist/w4-strategy/export.log
+```
+
+Result:
+
+```text
+engine white entries: 10524
+engine white binary: 242068 bytes
+engine white root move: b2b4
+engine black entries: 10995
+engine black binary: 252901 bytes
+```
+
+For comparison, the corrected full width 4 tablebase binary is `22,736,796`
+bytes.
+
+## Verification
+
+The exporter verifies:
+
+- every stored engine move is legal;
+- every human-turn node includes all legal human replies;
+- every engine-turn edge satisfies DTM consistency:
+  - `WIN -> LOSS` with child DTM `parent_dtm - 1`;
+  - `LOSS -> WIN` with child DTM `parent_dtm - 1`;
+- every referenced child is present.
+
+Width 4 verification counts:
+
+```text
+engine white checked entries: 10524
+engine white checked edges: 12961
+engine black checked entries: 10995
+engine black checked edges: 13609
+```
+
+## Binary Format
+
+Header:
+
+- `4s`: magic `PWST`
+- `u8`: version
+- `u8`: board width
+- `u8`: engine side, `0` white or `1` black
+- `u8`: record bytes, currently `23`
+- `u64le`: row count
+
+Each record:
+
+- `17 bytes`: standard 8x8 tablebase key, little endian
+- `i8`: outcome
+- `u16le`: DTM
+- `u16le`: best move, `0xffff` for none
+- `u8`: flags
+
+Flags:
+
+- bit `0`: engine-turn node
+- bit `1`: terminal node
