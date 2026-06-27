@@ -86,11 +86,209 @@ class PrincipleBot:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class LastLegalBot:
+    name: str = "last"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del state, width, rng
+        return moves[-1]
+
+
+@dataclass(frozen=True, slots=True)
+class CaptureBot:
+    name: str = "capture"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del state, width, rng
+        return _best(moves, lambda move: 100 * move.capture + 20 * move.en_passant + move.winning)
+
+
+@dataclass(frozen=True, slots=True)
+class AdvanceBot:
+    name: str = "advance"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del width, rng
+        return _best(moves, lambda move: 1000 * move.winning + _advance_delta(move, state.turn))
+
+
+@dataclass(frozen=True, slots=True)
+class CenterBot:
+    name: str = "center"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del state, rng
+        center = (width - 1) / 2
+        return _best(
+            moves, lambda move: 1000 * move.winning - abs(file_of(move.to_square) - center)
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class EdgeBot:
+    name: str = "edge"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del state, rng
+        return _best(
+            moves,
+            lambda move: (
+                1000 * move.winning
+                + max(file_of(move.to_square), width - 1 - file_of(move.to_square))
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class DoublePushBot:
+    name: str = "double"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del state, width, rng
+        return _best(moves, lambda move: 1000 * move.winning + 50 * move.double)
+
+
+@dataclass(frozen=True, slots=True)
+class SafeBot:
+    name: str = "safe"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del rng
+        side = state.turn
+        return _best(
+            moves,
+            lambda move: (
+                1000 * move.winning - 500 * _allows_immediate_win(state, move, width, side)
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class TempoBot:
+    name: str = "tempo"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del rng
+        side = state.turn
+        return _best(
+            moves,
+            lambda move: (
+                1000 * move.winning + _tempo_score(make_move(state, move, width), side, width)
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PassedPawnBot:
+    name: str = "passer"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del rng
+        side = state.turn
+        return _best(
+            moves,
+            lambda move: (
+                1000 * move.winning
+                + 100 * _creates_passed_after_move(state, move, width, side)
+                + 30 * _path_clear(make_move(state, move, width), side, move.to_square, width)
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class OnePlyTacticalBot:
+    name: str = "tactical1"
+
+    def choose_move(
+        self,
+        state: State,
+        moves: tuple[Move, ...],
+        width: int,
+        rng: random.Random,
+    ) -> Move:
+        del rng
+        side = state.turn
+        return _best(
+            moves,
+            lambda move: (
+                10000 * move.winning
+                - 9000 * _allows_immediate_win(state, move, width, side)
+                + 100 * move.capture
+                + 30 * _advance_delta(move, side)
+            ),
+        )
+
+
 def bot_registry() -> dict[str, Bot]:
     return {
+        "advance": AdvanceBot(),
+        "capture": CaptureBot(),
+        "center": CenterBot(),
+        "double": DoublePushBot(),
+        "edge": EdgeBot(),
         "first": FirstLegalBot(),
+        "last": LastLegalBot(),
+        "passer": PassedPawnBot(),
         "principle": PrincipleBot(),
         "random": RandomBot(),
+        "safe": SafeBot(),
+        "tactical1": OnePlyTacticalBot(),
+        "tempo": TempoBot(),
     }
 
 
@@ -160,6 +358,33 @@ def _principle_move_score(state: State, move: Move, width: int, side: str) -> in
         score -= 2_000
 
     return score
+
+
+def _best(moves: tuple[Move, ...], score) -> Move:
+    return max(moves, key=lambda move: (score(move), -move.from_square, -move.to_square))
+
+
+def _advance_delta(move: Move, side: str) -> int:
+    if side == WHITE:
+        return rank_of(move.to_square) - rank_of(move.from_square)
+    return rank_of(move.from_square) - rank_of(move.to_square)
+
+
+def _allows_immediate_win(state: State, move: Move, width: int, side: str) -> bool:
+    child = make_move(state, move, width)
+    if terminal_winner(child, width) == side:
+        return False
+    return any(reply.winning for reply in legal_moves(child, width))
+
+
+def _tempo_score(state: State, side: str, width: int) -> int:
+    return 10 * _safe_move_count(state, side, width) - 12 * _safe_move_count(
+        state, opposite(side), width
+    )
+
+
+def _creates_passed_after_move(state: State, move: Move, width: int, side: str) -> bool:
+    return _creates_passed_pawn(make_move(state, move, width), side, move.to_square, width)
 
 
 def _static_eval(state: State, side: str, width: int) -> int:
