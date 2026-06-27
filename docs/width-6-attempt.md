@@ -52,7 +52,10 @@ Classic conclusion:
 - Width 6 is too large for the original sparse Python dict-backed DFS/exporter.
 - A compact width-specific backend is required before a practical width 6 export.
 
-## Compact Backend Measurement
+## Compact Proof-Tree Measurement
+
+This mode proves the requested root state but may prune sibling states after a
+position is proven. It is not a complete browser tablebase.
 
 Command:
 
@@ -76,16 +79,64 @@ Correctness checks:
 - Width 4 compact result matches the existing tablebase: `WIN`, DTM `21`, best move `b2b4`, `1,033,490` states.
 - Compact export writes standard 8x8 tablebase keys, not dense internal keys.
 
+Later correction:
+
+- The `1,033,490` width 4 number is a proof-tree size, not a full tablebase size.
+- Full-tablebase mode must solve all legal children and use `--full-tablebase`.
+- Correct width 4 full-tablebase with symmetry exports `1,160,054` rows and stores `580,414` canonical states internally.
+
+## Compact Full-Tablebase Measurement
+
+Width 4 validation:
+
+```powershell
+py export_tablebase.py --backend compact --board-width 4 --symmetry --full-tablebase --output-dir dist/w4-full-sym --skip-jsonl --binary --progress 250000 --export-progress 250000 --progress-path-depth 12 --log-file dist/w4-full-sym/export.log
+```
+
+Result:
+
+```text
+states entered: 580414
+states solved: 580414
+expanded export rows: 1160054
+initial outcome: WIN
+initial best move: b2b4
+initial DTM: 21
+```
+
+Width 6 bounded measurement:
+
+```powershell
+py export_tablebase.py --backend compact --board-width 6 --symmetry --full-tablebase --output-dir dist/w6-full-sym-measure --skip-jsonl --binary --progress 1000000 --max-entered 5000000 --progress-path-depth 16 --checkpoint dist/w6-full-sym-measure/checkpoint.pkl --checkpoint-interval 1000000 --log-file dist/w6-full-sym-measure/export.log
+```
+
+Result:
+
+```text
+entered=1000000 solved=999975 cache_hits=1852414 max_depth=46 elapsed=60.32s
+entered=2000000 solved=1999968 cache_hits=4123901 max_depth=46 elapsed=123.69s
+entered=3000000 solved=2999969 cache_hits=6485093 max_depth=47 elapsed=190.03s
+entered=4000000 solved=3999965 cache_hits=8359253 max_depth=47 elapsed=249.52s
+entered=5000000 solved=4999975 cache_hits=10677618 max_depth=47 elapsed=313.08s
+stopped after entering 5000001 uncached states
+```
+
+Conclusion:
+
+- The corrected full-tablebase run is safer but slower than proof-tree mode.
+- Python dict-backed DFS remains a poor final engine for width 6/8 full tablebases.
+- The next serious backend should be a retrograde/topological solver with compact arrays, or a Rust/C++ implementation.
+
 Recommended width 6 export command:
 
 ```powershell
-py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --log-file dist/w6/export.log
+py export_tablebase.py --backend compact --board-width 6 --symmetry --full-tablebase --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --log-file dist/w6/export.log
 ```
 
 Resume command:
 
 ```powershell
-py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --resume --log-file dist/w6/export.log
+py export_tablebase.py --backend compact --board-width 6 --symmetry --full-tablebase --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --resume --log-file dist/w6/export.log
 ```
 
 Binary export:

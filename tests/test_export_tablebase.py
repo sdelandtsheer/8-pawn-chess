@@ -69,6 +69,20 @@ class ExportTablebaseTests(unittest.TestCase):
             self.assertEqual(struct.unpack("<Q", data[8:16])[0], len(solver.memo))
             self.assertEqual(len(data), 16 + len(solver.memo) * 22)
 
+    def test_write_binary_expands_symmetric_compact_solver(self) -> None:
+        plain = CompactSolver(board_width=2, prune=False)
+        plain.solve(initial_state(2))
+        solver = CompactSolver(board_width=2, use_symmetry=True, prune=False)
+        solver.solve(initial_state(2))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tablebase.bin"
+            write_binary(solver, path, board_width=2, export_progress_interval=0)
+            data = path.read_bytes()
+            rows = struct.unpack("<Q", data[8:16])[0]
+            self.assertLess(len(solver.memo), len(plain.memo))
+            self.assertEqual(rows, len(plain.memo))
+            self.assertEqual(len(data), 16 + rows * 22)
+
     def test_write_metadata(self) -> None:
         solver = small_solver()
         with tempfile.TemporaryDirectory() as tmp:

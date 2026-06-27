@@ -63,6 +63,8 @@ class CompactSolver:
         trace_depth: int = -1,
         log_moves: bool = False,
         progress_path_depth: int = 8,
+        use_symmetry: bool = False,
+        prune: bool = True,
         checkpoint_path: Path | None = None,
         checkpoint_interval: int = 0,
         resume: bool = False,
@@ -90,6 +92,9 @@ class CompactSolver:
         self.trace_depth = trace_depth
         self.log_moves = log_moves
         self.progress_path_depth = progress_path_depth
+        self.use_symmetry = use_symmetry
+        self.prune = prune
+        self._mirror_rows = _build_mirror_rows(board_width)
         self.checkpoint_path = checkpoint_path
         self.checkpoint_interval = checkpoint_interval
         self.progress_stream = progress_stream
@@ -119,12 +124,22 @@ class CompactSolver:
         return self.state_to_key(initial_state(self.board_width))
 
     def initial_result(self) -> Result | None:
-        packed = self.memo.get(self.initial_key())
+        packed = self.memo.get(self._canonical_key(self.initial_key())[0])
         return None if packed is None else _unpack_result(packed)
 
     def iter_standard_entries(self):
         for key, packed_result in self.memo.items():
             yield self.standard_key_from_compact_key(key), packed_result
+            if not self.use_symmetry:
+                continue
+
+            mirrored_key = self._mirror_key(key)
+            if mirrored_key == key:
+                continue
+            yield (
+                self.standard_key_from_compact_key(mirrored_key),
+                _mirror_result(packed_result, self.board_width),
+            )
 
     def save_checkpoint(self, path: Path | None = None) -> None:
         target = path if path is not None else self.checkpoint_path
@@ -135,6 +150,8 @@ class CompactSolver:
         payload = {
             "version": CHECKPOINT_VERSION,
             "board_width": self.board_width,
+            "use_symmetry": self.use_symmetry,
+            "prune": self.prune,
             "memo": self.memo,
             "stats": self.stats,
             "saved_at": time.time(),
@@ -163,6 +180,15 @@ class CompactSolver:
                 f"checkpoint board width {payload.get('board_width')} does not match "
                 f"{self.board_width}"
             )
+        if bool(payload.get("use_symmetry", False)) != self.use_symmetry:
+            raise ValueError(
+                f"checkpoint symmetry={payload.get('use_symmetry', False)} does not match "
+                f"{self.use_symmetry}"
+            )
+        if bool(payload.get("prune", True)) != self.prune:
+            raise ValueError(
+                f"checkpoint prune={payload.get('prune', True)} does not match {self.prune}"
+            )
         memo = payload.get("memo")
         stats = payload.get("stats")
         if not isinstance(memo, dict) or not isinstance(stats, CompactSolverStats):
@@ -187,6 +213,11 @@ class CompactSolver:
         return standard_white | (standard_black << 64) | (turn << 128) | (ep_code << 129)
 
     def _solve_key(self, key: int, *, depth: int) -> int:
+        key, mirrored = self._canonical_key(key)
+        result = self._solve_canonical_key(key, depth=depth)
+        return _mirror_result(result, self.board_width) if mirrored else result
+
+    def _solve_canonical_key(self, key: int, *, depth: int) -> int:
         cached = self.memo.get(key)
         if cached is not None:
             self.stats.cache_hits += 1
@@ -213,9 +244,10 @@ class CompactSolver:
         if not moves:
             return self._store(key, _pack_result(LOSS, 0, NO_MOVE))
 
-        for move_code in moves:
-            if _move_flags(move_code) & FLAG_WINNING:
-                return self._store(key, _pack_result(WIN, 1, move_code))
+        if self.prune:
+            for move_code in moves:
+                if _move_flags(move_code) & FLAG_WINNING:
+                    return self._store(key, _pack_result(WIN, 1, move_code))
 
         best_winning_move = NO_MOVE
         best_win_dtm = sys.maxsize
@@ -224,16 +256,20 @@ class CompactSolver:
 
         for move_code in moves:
             self._trace_considered_move(depth, move_code)
-            child_key = self._make_move_key(white, black, turn, move_code)
-            self._path.append(move_code)
-            child_outcome, child_dtm, _ = _unpack_result_parts(
-                self._solve_key(child_key, depth=depth + 1)
-            )
-            self._path.pop()
+            if _move_flags(move_code) & FLAG_WINNING:
+                child_outcome = LOSS
+                child_dtm = 0
+            else:
+                child_key = self._make_move_key(white, black, turn, move_code)
+                self._path.append(move_code)
+                child_outcome, child_dtm, _ = _unpack_result_parts(
+                    self._solve_key(child_key, depth=depth + 1)
+                )
+                self._path.pop()
 
             current_dtm = child_dtm + 1
             if child_outcome == LOSS:
-                if current_dtm == 1:
+                if self.prune and current_dtm == 1:
                     return self._store(key, _pack_result(WIN, 1, move_code))
                 if current_dtm < best_win_dtm:
                     best_win_dtm = current_dtm
@@ -249,6 +285,39 @@ class CompactSolver:
             raise RuntimeError("non-terminal state had moves but no best move was selected")
 
         return self._store(key, _pack_result(LOSS, best_loss_dtm, best_losing_move))
+
+    def _canonical_key(self, key: int) -> tuple[int, bool]:
+        if not self.use_symmetry:
+            return key, False
+        mirrored_key = self._mirror_key(key)
+        if mirrored_key < key:
+            return mirrored_key, True
+        return key, False
+
+    def _mirror_key(self, key: int) -> int:
+        white, black, turn, ep_square = self._unpack_key(key)
+        mirrored_ep = (
+            NO_EP
+            if ep_square == NO_EP
+            else _mirror_dense_square(
+                ep_square,
+                self.board_width,
+            )
+        )
+        return self._pack_key(
+            self._mirror_bitboard(white),
+            self._mirror_bitboard(black),
+            turn,
+            mirrored_ep,
+        )
+
+    def _mirror_bitboard(self, bitboard: int) -> int:
+        mirrored = 0
+        row_mask = (1 << self.board_width) - 1
+        for rank in range(8):
+            row = (bitboard >> (rank * self.board_width)) & row_mask
+            mirrored |= self._mirror_rows[row] << (rank * self.board_width)
+        return mirrored
 
     def _pack_key(self, white: int, black: int, turn: int, ep_square: int) -> int:
         ep_square = self._normalize_ep_square(white, black, turn, ep_square)
@@ -567,6 +636,30 @@ def _dense_to_standard_square(square: int, board_width: int) -> int:
     return (square // board_width) * 8 + (square % board_width)
 
 
+def _mirror_dense_square(square: int, board_width: int) -> int:
+    rank = square // board_width
+    file_ = square % board_width
+    return rank * board_width + board_width - 1 - file_
+
+
+def _mirror_standard_square(square: int, board_width: int) -> int:
+    rank = square & ~7
+    file_ = square & 7
+    if file_ >= board_width:
+        raise ValueError(f"square is outside board width {board_width}: {square}")
+    return rank + board_width - 1 - file_
+
+
+def _build_mirror_rows(board_width: int) -> tuple[int, ...]:
+    return tuple(
+        sum(
+            ((row >> source_file) & 1) << (board_width - 1 - source_file)
+            for source_file in range(board_width)
+        )
+        for row in range(1 << board_width)
+    )
+
+
 def _standard_bitboard_to_dense(bitboard: int, board_width: int) -> int:
     dense = 0
     remaining = bitboard
@@ -603,6 +696,21 @@ def _move_flags(move_code: int) -> int:
     return (move_code >> 12) & 0xF
 
 
+def _mirror_move(move_code: int, board_width: int) -> int:
+    if move_code == NO_MOVE:
+        return NO_MOVE
+    return (
+        _mirror_standard_square(_move_from(move_code), board_width)
+        | (_mirror_standard_square(_move_to(move_code), board_width) << 6)
+        | (_move_flags(move_code) << 12)
+    )
+
+
+def _mirror_result(packed_result: int, board_width: int) -> int:
+    outcome, dtm, best_move = _unpack_result_parts(packed_result)
+    return _pack_result(outcome, dtm, _mirror_move(best_move, board_width))
+
+
 def _move_to_text(move_code: int) -> str:
     if move_code == NO_MOVE:
         return "none"
@@ -625,6 +733,8 @@ def solve_initial(
     trace_depth: int = -1,
     log_moves: bool = False,
     progress_path_depth: int = 8,
+    use_symmetry: bool = False,
+    prune: bool = True,
     checkpoint_path: Path | None = None,
     checkpoint_interval: int = 0,
     resume: bool = False,
@@ -636,6 +746,8 @@ def solve_initial(
         trace_depth=trace_depth,
         log_moves=log_moves,
         progress_path_depth=progress_path_depth,
+        use_symmetry=use_symmetry,
+        prune=prune,
         checkpoint_path=checkpoint_path,
         checkpoint_interval=checkpoint_interval,
         resume=resume,
@@ -654,6 +766,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trace-depth", type=int, default=-1)
     parser.add_argument("--log-moves", action="store_true")
     parser.add_argument("--progress-path-depth", type=int, default=8)
+    parser.add_argument("--symmetry", action="store_true")
+    parser.add_argument(
+        "--full-tablebase",
+        action="store_true",
+        help="solve every reachable child instead of pruning proof siblings",
+    )
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--checkpoint-interval", type=int, default=0)
     parser.add_argument("--resume", action="store_true")
@@ -670,6 +788,8 @@ def main(argv: list[str] | None = None) -> int:
             trace_depth=args.trace_depth,
             log_moves=args.log_moves,
             progress_path_depth=args.progress_path_depth,
+            use_symmetry=args.symmetry,
+            prune=not args.full_tablebase,
             checkpoint_path=args.checkpoint,
             checkpoint_interval=args.checkpoint_interval,
             resume=args.resume,

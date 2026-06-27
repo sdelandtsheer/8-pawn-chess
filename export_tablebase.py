@@ -71,6 +71,7 @@ def solve_tablebase(
     trace_depth: int = -1,
     log_moves: bool = False,
     progress_path_depth: int = 8,
+    full_tablebase: bool = False,
     checkpoint_path: Path | None = None,
     checkpoint_interval: int = 0,
     resume: bool = False,
@@ -78,8 +79,6 @@ def solve_tablebase(
 ) -> tuple[Solver | CompactSolver, float, bool]:
     validate_board_width(board_width)
     if backend == "compact":
-        if use_symmetry:
-            raise ValueError("--symmetry is only supported by --backend classic")
         solver = CompactSolver(
             board_width=board_width,
             progress_interval=progress_interval,
@@ -87,6 +86,8 @@ def solve_tablebase(
             trace_depth=trace_depth,
             log_moves=log_moves,
             progress_path_depth=progress_path_depth,
+            use_symmetry=use_symmetry,
+            prune=not full_tablebase,
             checkpoint_path=checkpoint_path,
             checkpoint_interval=checkpoint_interval,
             resume=resume,
@@ -183,6 +184,12 @@ def _iter_standard_entries(solver: Solver | CompactSolver):
         yield from solver.memo.items()
 
 
+def _standard_entry_count(solver: Solver | CompactSolver) -> int:
+    if isinstance(solver, CompactSolver) and solver.use_symmetry:
+        return sum(1 for _ in solver.iter_standard_entries())
+    return len(solver.memo)
+
+
 def write_binary(
     solver: Solver | CompactSolver,
     path: Path,
@@ -211,12 +218,13 @@ def write_binary(
     path.parent.mkdir(parents=True, exist_ok=True)
     temp_path = path.with_suffix(path.suffix + ".tmp")
     record_bytes = STANDARD_KEY_BYTES + 5
+    row_count = _standard_entry_count(solver)
     try:
         with temp_path.open("wb") as file:
             file.write(
                 BINARY_MAGIC
                 + bytes([BINARY_VERSION, board_width, STANDARD_KEY_BYTES, record_bytes])
-                + struct.pack("<Q", len(solver.memo))
+                + struct.pack("<Q", row_count)
             )
             for index, (key, packed_result) in enumerate(_iter_standard_entries(solver), start=1):
                 result = _unpack_result(packed_result)
@@ -249,7 +257,7 @@ def build_metadata(
         initial_result = (
             None if initial_packed_result is None else _unpack_result(initial_packed_result)
         )
-    unpacked_results = (_unpack_result(result) for result in solver.memo.values())
+    unpacked_results = (_unpack_result(result) for _, result in _iter_standard_entries(solver))
     win_states = 0
     loss_states = 0
     for result in unpacked_results:
@@ -261,7 +269,7 @@ def build_metadata(
     return ExportMetadata(
         complete=complete,
         board_width=board_width,
-        states=len(solver.memo),
+        states=_standard_entry_count(solver),
         elapsed_seconds=elapsed_seconds,
         outcome=None if initial_result is None else initial_result.outcome,
         dtm=None if initial_result is None else initial_result.dtm,
@@ -357,6 +365,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="with --backend compact, include this many current-path plies in progress output",
     )
     parser.add_argument(
+        "--full-tablebase",
+        action="store_true",
+        help="with --backend compact, solve all reachable children instead of a pruned proof tree",
+    )
+    parser.add_argument(
         "--checkpoint",
         type=Path,
         default=None,
@@ -395,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
             trace_depth=args.trace_depth,
             log_moves=args.log_moves,
             progress_path_depth=args.progress_path_depth,
+            full_tablebase=args.full_tablebase,
             checkpoint_path=args.checkpoint,
             checkpoint_interval=args.checkpoint_interval,
             resume=args.resume,

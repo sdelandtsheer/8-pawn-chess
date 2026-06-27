@@ -71,7 +71,7 @@ locations, legal moves, and each move being considered within the selected depth
 Use the compact width-specific backend for width `6` and larger measurements:
 
 ```powershell
-py compact_solve.py --board-width 6 --progress 1000000 --progress-path-depth 20
+py compact_solve.py --board-width 6 --symmetry --progress 1000000 --progress-path-depth 20
 ```
 
 The compact backend stores only active files internally but still exports the
@@ -80,6 +80,11 @@ standard 8x8 tablebase keys. Progress includes a deeper current search path:
 ```text
 entered=5000000 solved=4999977 cache_hits=4216934 max_depth=40 path=a2a3 a7a5 b2b3 a5a4 c2c3 a4b3 d2d3 b7b5 e2e3 b5b4 f2f3 c7c5 a3b4 c5c4 e3e4 d7d5 f3f4 d5d4 c3d4 f7f6 ...(+2) elapsed=61.74s
 ```
+
+There are two solver modes:
+
+- Proof-tree mode is faster and proves the requested root state, but may prune sibling states.
+- Full-tablebase mode uses `--full-tablebase` and solves every reachable child; use this for browser exports.
 
 For bounded measurement runs while the full initial solve is still being optimized:
 
@@ -102,7 +107,7 @@ Run the full local pipeline:
 py -m unittest discover -s tests
 py -m ruff check .
 py -m ruff format --check .
-py export_tablebase.py --backend compact --board-width 8 --output-dir dist/w8 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w8/checkpoint.pkl --checkpoint-interval 5000000 --log-file dist/w8/export.log
+py export_tablebase.py --backend compact --board-width 8 --symmetry --full-tablebase --output-dir dist/w8 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w8/checkpoint.pkl --checkpoint-interval 5000000 --log-file dist/w8/export.log
 ```
 
 The exporter solves the initial position exactly, then writes:
@@ -127,7 +132,7 @@ exported=1000000
 Use a bounded dry run to verify logging without producing a partial table:
 
 ```powershell
-py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --max-entered 5000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 1000000 --log-file dist/w6/export.log
+py export_tablebase.py --backend compact --board-width 6 --symmetry --full-tablebase --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --max-entered 5000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 1000000 --log-file dist/w6/export.log
 ```
 
 Bounded runs exit nonzero and intentionally do not write final tablebase
@@ -136,7 +141,7 @@ artifacts. With `--checkpoint`, they do write a resumable `checkpoint.pkl`.
 Resume a compact run from the checkpoint:
 
 ```powershell
-py export_tablebase.py --backend compact --board-width 6 --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --resume --log-file dist/w6/export.log
+py export_tablebase.py --backend compact --board-width 6 --symmetry --full-tablebase --output-dir dist/w6 --skip-jsonl --binary --progress 1000000 --export-progress 1000000 --progress-path-depth 20 --checkpoint dist/w6/checkpoint.pkl --checkpoint-interval 5000000 --resume --log-file dist/w6/export.log
 ```
 
 The binary tablebase format is fixed-width and uses standard 8x8 keys:

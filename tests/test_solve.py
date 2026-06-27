@@ -199,6 +199,25 @@ class FastSolverParityTests(unittest.TestCase):
         self.assertEqual(best_move_to_text(result), "a2a3")
         self.assertEqual(solver.stats.states_solved, 515)
 
+    def test_compact_symmetry_width_two_matches_outcomes_and_dtm(self) -> None:
+        plain = CompactSolver(board_width=2, prune=False)
+        plain.solve(initial_state(2))
+        symmetric = CompactSolver(board_width=2, use_symmetry=True, prune=False)
+        result = symmetric.solve(initial_state(2))
+        self.assertEqual(result.outcome, LOSS)
+        self.assertEqual(result.dtm, 8)
+        self.assertLess(symmetric.stats.states_solved, plain.stats.states_solved)
+
+        plain_entries = {
+            key: (packed & 0x1, (packed >> 1) & 0xFFFF)
+            for key, packed in plain.iter_standard_entries()
+        }
+        symmetric_entries = {
+            key: (packed & 0x1, (packed >> 1) & 0xFFFF)
+            for key, packed in symmetric.iter_standard_entries()
+        }
+        self.assertEqual(symmetric_entries, plain_entries)
+
     def test_compact_checkpoint_can_resume_width_two_solve(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             checkpoint_path = Path(tmp) / "compact.pkl"
