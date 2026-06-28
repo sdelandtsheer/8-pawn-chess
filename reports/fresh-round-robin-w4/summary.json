@@ -3,12 +3,14 @@
     {
       "average_plies": 16.171875,
       "black_games": 160,
+      "black_win_rate": 1.0,
       "black_wins": 160,
       "bot": "zugzwang",
       "games": 320,
       "losses": 21,
       "total_plies": 5175,
       "white_games": 160,
+      "white_win_rate": 0.86875,
       "white_wins": 139,
       "win_rate": 0.934375,
       "wins": 299
@@ -16,12 +18,14 @@
     {
       "average_plies": 14.065625,
       "black_games": 160,
+      "black_win_rate": 0.99375,
       "black_wins": 159,
       "bot": "breaktempo",
       "games": 320,
       "losses": 41,
       "total_plies": 4501,
       "white_games": 160,
+      "white_win_rate": 0.75,
       "white_wins": 120,
       "win_rate": 0.871875,
       "wins": 279
@@ -29,12 +33,14 @@
     {
       "average_plies": 13.784375,
       "black_games": 160,
+      "black_win_rate": 0.6875,
       "black_wins": 110,
       "bot": "tempo",
       "games": 320,
       "losses": 93,
       "total_plies": 4411,
       "white_games": 160,
+      "white_win_rate": 0.73125,
       "white_wins": 117,
       "win_rate": 0.709375,
       "wins": 227
@@ -42,12 +48,14 @@
     {
       "average_plies": 13.471875,
       "black_games": 160,
+      "black_win_rate": 0.5625,
       "black_wins": 90,
       "bot": "principle",
       "games": 320,
       "losses": 101,
       "total_plies": 4311,
       "white_games": 160,
+      "white_win_rate": 0.80625,
       "white_wins": 129,
       "win_rate": 0.684375,
       "wins": 219
@@ -55,12 +63,14 @@
     {
       "average_plies": 16.44375,
       "black_games": 160,
+      "black_win_rate": 0.55,
       "black_wins": 88,
       "bot": "center",
       "games": 320,
       "losses": 118,
       "total_plies": 5262,
       "white_games": 160,
+      "white_win_rate": 0.7125,
       "white_wins": 114,
       "win_rate": 0.63125,
       "wins": 202
@@ -68,12 +78,14 @@
     {
       "average_plies": 14.515625,
       "black_games": 160,
+      "black_win_rate": 0.5625,
       "black_wins": 90,
       "bot": "capture",
       "games": 320,
       "losses": 131,
       "total_plies": 4645,
       "white_games": 160,
+      "white_win_rate": 0.61875,
       "white_wins": 99,
       "win_rate": 0.590625,
       "wins": 189
@@ -81,12 +93,14 @@
     {
       "average_plies": 14.41875,
       "black_games": 160,
+      "black_win_rate": 0.5,
       "black_wins": 80,
       "bot": "passer",
       "games": 320,
       "losses": 142,
       "total_plies": 4614,
       "white_games": 160,
+      "white_win_rate": 0.6125,
       "white_wins": 98,
       "win_rate": 0.55625,
       "wins": 178
@@ -94,12 +108,14 @@
     {
       "average_plies": 17.734375,
       "black_games": 160,
+      "black_win_rate": 0.1875,
       "black_wins": 30,
       "bot": "mirror",
       "games": 320,
       "losses": 151,
       "total_plies": 5675,
       "white_games": 160,
+      "white_win_rate": 0.86875,
       "white_wins": 139,
       "win_rate": 0.528125,
       "wins": 169
@@ -107,12 +123,14 @@
     {
       "average_plies": 13.99375,
       "black_games": 160,
+      "black_win_rate": 0.55,
       "black_wins": 88,
       "bot": "advance",
       "games": 320,
       "losses": 204,
       "total_plies": 4478,
       "white_games": 160,
+      "white_win_rate": 0.175,
       "white_wins": 28,
       "win_rate": 0.3625,
       "wins": 116
@@ -120,12 +138,14 @@
     {
       "average_plies": 14.03125,
       "black_games": 160,
+      "black_win_rate": 0.55625,
       "black_wins": 89,
       "bot": "double",
       "games": 320,
       "losses": 204,
       "total_plies": 4490,
       "white_games": 160,
+      "white_win_rate": 0.16875,
       "white_wins": 27,
       "win_rate": 0.3625,
       "wins": 116
@@ -133,12 +153,14 @@
     {
       "average_plies": 13.88125,
       "black_games": 160,
+      "black_win_rate": 0.54375,
       "black_wins": 87,
       "bot": "tactical1",
       "games": 320,
       "losses": 206,
       "total_plies": 4442,
       "white_games": 160,
+      "white_win_rate": 0.16875,
       "white_wins": 27,
       "win_rate": 0.35625,
       "wins": 114
@@ -146,12 +168,14 @@
     {
       "average_plies": 14.4375,
       "black_games": 160,
+      "black_win_rate": 0.36875,
       "black_wins": 59,
       "bot": "edge",
       "games": 320,
       "losses": 208,
       "total_plies": 4620,
       "white_games": 160,
+      "white_win_rate": 0.33125,
       "white_wins": 53,
       "win_rate": 0.35,
       "wins": 112
@@ -159,12 +183,14 @@
     {
       "average_plies": 13.746875,
       "black_games": 160,
+      "black_win_rate": 0.43125,
       "black_wins": 69,
       "bot": "first",
       "games": 320,
       "losses": 229,
       "total_plies": 4399,
       "white_games": 160,
+      "white_win_rate": 0.1375,
       "white_wins": 22,
       "win_rate": 0.284375,
       "wins": 91
@@ -172,12 +198,14 @@
     {
       "average_plies": 13.721875,
       "black_games": 160,
+      "black_win_rate": 0.4,
       "black_wins": 64,
       "bot": "safe",
       "games": 320,
       "losses": 231,
       "total_plies": 4391,
       "white_games": 160,
+      "white_win_rate": 0.15625,
       "white_wins": 25,
       "win_rate": 0.278125,
       "wins": 89
@@ -185,12 +213,14 @@
     {
       "average_plies": 16.246875,
       "black_games": 160,
+      "black_win_rate": 0.3125,
       "black_wins": 50,
       "bot": "random",
       "games": 320,
       "losses": 233,
       "total_plies": 5199,
       "white_games": 160,
+      "white_win_rate": 0.23125,
       "white_wins": 37,
       "win_rate": 0.271875,
       "wins": 87
@@ -198,12 +228,14 @@
     {
       "average_plies": 16.909375,
       "black_games": 160,
+      "black_win_rate": 0.03125,
       "black_wins": 5,
       "bot": "last",
       "games": 320,
       "losses": 247,
       "total_plies": 5411,
       "white_games": 160,
+      "white_win_rate": 0.425,
       "white_wins": 68,
       "win_rate": 0.228125,
       "wins": 73

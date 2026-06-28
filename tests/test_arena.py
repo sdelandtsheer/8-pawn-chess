@@ -1,4 +1,5 @@
 import unittest
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -32,8 +33,13 @@ class ArenaTests(unittest.TestCase):
                 games=games,
                 stats=stats,
             )
-            self.assertTrue((Path(directory) / "summary.json").exists())
+            summary_path = Path(directory) / "summary.json"
+            self.assertTrue(summary_path.exists())
             self.assertTrue((Path(directory) / "games.csv").exists())
+            summary = json.loads(summary_path.read_text(encoding="utf-8"))
+            first_bot = summary["bots"][0]
+            self.assertIn("white_win_rate", first_bot)
+            self.assertIn("black_win_rate", first_bot)
 
 
 if __name__ == "__main__":

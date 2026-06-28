@@ -47,6 +47,8 @@ def main() -> int:
         print(
             f"{rank:02d}. {item.bot:16s} "
             f"win_rate={item.win_rate:.3f} "
+            f"white={item.white_win_rate:.3f} "
+            f"black={item.black_win_rate:.3f} "
             f"wins={item.wins}/{item.games} "
             f"avg_plies={item.average_plies:.1f}"
         )

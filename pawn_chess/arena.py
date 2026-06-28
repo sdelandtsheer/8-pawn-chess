@@ -52,6 +52,14 @@ class BotStats:
         return 0.0 if self.games == 0 else self.wins / self.games
 
     @property
+    def white_win_rate(self) -> float:
+        return 0.0 if self.white_games == 0 else self.white_wins / self.white_games
+
+    @property
+    def black_win_rate(self) -> float:
+        return 0.0 if self.black_games == 0 else self.black_wins / self.black_games
+
+    @property
     def average_plies(self) -> float:
         return 0.0 if self.games == 0 else self.total_plies / self.games
 
@@ -171,6 +179,8 @@ def write_results(
         {
             **asdict(item),
             "win_rate": item.win_rate,
+            "white_win_rate": item.white_win_rate,
+            "black_win_rate": item.black_win_rate,
             "average_plies": item.average_plies,
         }
         for item in stats
